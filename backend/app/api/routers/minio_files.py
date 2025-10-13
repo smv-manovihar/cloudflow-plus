@@ -3,16 +3,8 @@ from fastapi import UploadFile, File, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.services.s3_service import minio_s3_client
 from fastapi.routing import APIRouter
-import uuid
-from io import BytesIO
-import threading
-import anyio
-import asyncio
-from typing import AsyncGenerator
 
 router = APIRouter(prefix="/minio/buckets", tags=["Minio Files"])
-progress_data = {}
-lock = threading.Lock()
 
 
 @router.get("/{bucket_name}/files")
@@ -31,7 +23,6 @@ async def list_files_in_bucket(bucket_name: str) -> JSONResponse:
                 "key": file["Key"],
                 "last_modified": file["LastModified"].isoformat(),
                 "size_bytes": file["Size"],
-                "storage_class": file["StorageClass"],
             }
             for file in files
         ]
@@ -44,85 +35,23 @@ async def list_files_in_bucket(bucket_name: str) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def progress_generator(upload_id: str) -> AsyncGenerator[str, None]:
-    while True:
-        with lock:
-            if upload_id not in progress_data:
-                yield 'data: {"status": "not_found"}\n\n'
-                return
-            data = progress_data[upload_id].copy()
-        percent = (data["progress"] / data["total"] * 100) if data["total"] > 0 else 0
-        response = {"status": data["status"], "progress_percent": round(percent, 2)}
-        if "error" in data:
-            response["error"] = data["error"]
-        yield f"data: {response}\n\n"
-        if data["status"] in ["completed", "error"]:
-            with lock:
-                progress_data.pop(upload_id, None)
-            return
-        await asyncio.sleep(1)  # Send updates every second
-
-
-async def upload_func(content: bytes, bucket_name: str, filename: str, upload_id: str):
-    def callback(bytes_transferred: int):
-        with lock:
-            if upload_id in progress_data:
-                progress_data[upload_id]["progress"] += bytes_transferred
-
-    def do_upload():
-        minio_s3_client.upload_fileobj(
-            BytesIO(content), bucket_name, filename, Callback=callback
-        )
-
-    try:
-        await anyio.to_thread.run_sync(do_upload)
-        with lock:
-            if upload_id in progress_data:
-                progress_data[upload_id]["status"] = "completed"
-    except ClientError as e:
-        with lock:
-            if upload_id in progress_data:
-                progress_data[upload_id]["status"] = "error"
-                progress_data[upload_id]["error"] = e.response["Error"]["Message"]
-    except Exception as e:
-        with lock:
-            if upload_id in progress_data:
-                progress_data[upload_id]["status"] = "error"
-                progress_data[upload_id]["error"] = str(e)
-
-
-@router.post("/{bucket_name}/files")
+@router.post("/{bucket_name}/files", status_code=status.HTTP_201_CREATED)
 async def upload_file_to_bucket(
     bucket_name: str, file: UploadFile = File(...)
-) -> StreamingResponse:
+) -> JSONResponse:
     """
-    Uploads a file to the specified bucket asynchronously.
-    Returns a streaming response with SSE (Server-Sent Events) for real-time progress updates.
+    Uploads a file to the specified bucket.
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
     try:
-        # Read the file content in a separate thread to avoid blocking
-        content = await anyio.to_thread.run_sync(file.file.read)
-        file_size = len(content)
-        upload_id = str(uuid.uuid4())
-        with lock:
-            progress_data[upload_id] = {
-                "progress": 0,
-                "total": file_size,
-                "status": "uploading",
-            }
-
-        # Start the upload in the background
-        asyncio.create_task(upload_func(content, bucket_name, file.filename, upload_id))
-
-        # Return SSE stream for progress
-        headers = {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
+        # upload_fileobj is memory-efficient for large files
+        minio_s3_client.upload_fileobj(file.file, bucket_name, file.filename)
+        return {
+            "message": "File uploaded successfully",
+            "bucket": bucket_name,
+            "filename": file.filename,
         }
-        return StreamingResponse(progress_generator(upload_id), headers=headers)
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchBucket":
             raise HTTPException(
