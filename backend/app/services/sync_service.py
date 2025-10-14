@@ -1,18 +1,9 @@
 import logging
-import os
-import tempfile
 from botocore.exceptions import ClientError, EndpointConnectionError
-
-
-# Assuming your s3 clients are configured and imported from here
 from .s3_service import aws_s3_client, minio_s3_client
-
 
 # ------------------- LOGGING SETUP -------------------
 
-
-# Configure logging to write ONLY to a file.
-# The log file will be created in the directory from which the script is run.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -20,9 +11,7 @@ logging.basicConfig(
     handlers=[logging.FileHandler("s3_sync.log")],
 )
 
-
 logger = logging.getLogger(__name__)
-
 
 # ------------------- EXCEPTIONS -------------------
 
@@ -65,27 +54,20 @@ def _check_source_bucket_exists(client, bucket_name: str):
 
 
 def _get_object_metadata(client, bucket: str, key: str) -> dict | None:
-    """
-    Retrieves metadata (like ETag) for an object.
-    Returns the metadata dict if the object exists, otherwise None.
-    """
+    """Retrieves metadata (like ETag) for an object. Returns None if object does not exist."""
     try:
         response = client.head_object(Bucket=bucket, Key=key)
-        # The ETag from AWS/MinIO often includes quotes, so we strip them.
         response["ETag"] = response.get("ETag", "").strip('"')
         return response
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") == "404":
-            return None  # Object does not exist
+            return None
         logger.error(f"Could not get metadata for '{key}' in bucket '{bucket}': {e}")
         raise S3SyncError(f"Could not access metadata for {bucket}/{key}") from e
 
 
 def _extract_error_details(exception: Exception) -> str:
-    """
-    Extracts detailed error message from various exception types.
-    Returns a human-readable error string.
-    """
+    """Extracts detailed error message from various exception types."""
     if isinstance(exception, ClientError):
         error_code = exception.response.get("Error", {}).get("Code", "Unknown")
         error_message = exception.response.get("Error", {}).get(
@@ -93,15 +75,14 @@ def _extract_error_details(exception: Exception) -> str:
         )
         return f"{error_code}: {error_message}"
     elif isinstance(exception, S3SyncError):
-        # Extract the original cause if available
         if exception.__cause__:
-            return f"{str(exception)} (Cause: {_extract_error_details(exception.__cause__)}) "
+            return f"{str(exception)} (Cause: {_extract_error_details(exception.__cause__)})"
         return str(exception)
     else:
         return f"{type(exception).__name__}: {str(exception)}"
 
 
-# ------------------- API-FRIENDLY SERVICE FUNCTIONS -------------------
+# ------------------- API-FRIENDLY/DD SERVICE FUNCTIONS -------------------
 
 
 def sync_single_file(local_bucket: str, aws_bucket: str, key: str) -> dict:
@@ -138,12 +119,14 @@ def sync_single_file(local_bucket: str, aws_bucket: str, key: str) -> dict:
             logger.info(f"Skipped: '{key}' is already up to date in destination.")
             return {"status": "skipped", "key": key}
 
-        status = "updated" if dest_meta else "synced"
+        status = "updated" if dest_meta else "synyed"
 
-        # 5. Perform the file transfer.
-        with tempfile.NamedTemporaryFile() as tmp_file:
-            minio_s3_client.download_file(local_bucket, key, tmp_file.name)
-            aws_s3_client.upload_file(tmp_file.name, aws_bucket, key)
+        # 5. Perform copy using file object.
+        aws_s3_client.upload_fileobj(
+            minio_s3_client.get_object(Bucket=local_bucket, Key=key)["Body"],
+            Bucket=aws_bucket,
+            Key=key,
+        )
 
         logger.info(f"Successfully {status}: {key}")
         return {"status": status, "key": key}
@@ -151,7 +134,6 @@ def sync_single_file(local_bucket: str, aws_bucket: str, key: str) -> dict:
     except (ClientError, EndpointConnectionError, S3SyncError) as e:
         error_details = _extract_error_details(e)
         logger.error(f"Error during single file sync for '{key}': {error_details}")
-        # Return failed status with error details instead of raising
         return {"status": "failed", "key": key, "error": error_details}
 
 
@@ -175,7 +157,7 @@ def sync_single_bucket(bucket_name: str) -> dict:
         "files_synced": 0,
         "files_updated": 0,
         "files_skipped": 0,
-        "failed_files": [],  # Changed to list of dicts
+        "failed_files": [],
     }
 
     try:
@@ -202,22 +184,21 @@ def sync_single_bucket(bucket_name: str) -> dict:
                     dest_meta = _get_object_metadata(aws_s3_client, bucket_name, key)
 
                     if dest_meta is None:
-                        # File doesn't exist, sync it.
                         status = "synced"
                         summary["files_synced"] += 1
                     elif dest_meta.get("ETag") == source_etag:
-                        # Files are identical, skip.
                         summary["files_skipped"] += 1
                         continue
                     else:
-                        # ETags differ, update it.
                         status = "updated"
                         summary["files_updated"] += 1
 
-                    # Perform download/upload
-                    with tempfile.NamedTemporaryFile() as tmp_file:
-                        minio_s3_client.download_file(bucket_name, key, tmp_file.name)
-                        aws_s3_client.upload_file(tmp_file.name, bucket_name, key)
+                    # Perform copy using file object
+                    aws_s3_client.upload_fileobj(
+                        minio_s3_client.get_object(Bucket=bucket_name, Key=key)["Body"],
+                        Bucket=bucket_name,
+                        Key=key,
+                    )
                     logger.debug(
                         f"Successfully {status} object '{key}' in bucket '{bucket_name}'."
                     )
@@ -227,7 +208,6 @@ def sync_single_bucket(bucket_name: str) -> dict:
                     logger.error(
                         f"Failed to sync object '{key}' from '{bucket_name}': {error_details}"
                     )
-                    # Store both key and error details
                     summary["failed_files"].append({"key": key, "error": error_details})
 
     except ClientError as e:
@@ -261,7 +241,7 @@ def sync_all_buckets() -> dict:
         "total_files_synced": 0,
         "total_files_updated": 0,
         "total_files_skipped": 0,
-        "failed_buckets": [],  # Changed to list of dicts
+        "failed_buckets": [],
         "bucket_summaries": [],
     }
 
@@ -276,19 +256,15 @@ def sync_all_buckets() -> dict:
 
     for bucket_name in source_buckets:
         bucket_summary = sync_single_bucket(bucket_name)
-
-        # Aggregate the stats
         overall_summary["total_files_synced"] += bucket_summary.get("files_synced", 0)
         overall_summary["total_files_updated"] += bucket_summary.get("files_updated", 0)
         overall_summary["total_files_skipped"] += bucket_summary.get("files_skipped", 0)
 
-        # Track failed buckets with error details
         if "error" in bucket_summary:
             overall_summary["failed_buckets"].append(
                 {"bucket": bucket_name, "error": bucket_summary["error"]}
             )
         elif bucket_summary.get("failed_files"):
-            # Bucket partially failed (some files failed)
             overall_summary["failed_buckets"].append(
                 {
                     "bucket": bucket_name,
@@ -300,9 +276,6 @@ def sync_all_buckets() -> dict:
 
     logger.info(f"Full sync of all buckets complete. Summary: {overall_summary}")
     return overall_summary
-
-
-# ------------------- OPTIONAL: SUMMARY HELPERS -------------------
 
 
 def get_detailed_failure_report(sync_result: dict) -> str:
@@ -318,7 +291,6 @@ def get_detailed_failure_report(sync_result: dict) -> str:
     report_lines = []
 
     if "bucket_summaries" in sync_result:
-        # Full sync result
         report_lines.append("=" * 60)
         report_lines.append("SYNC FAILURE REPORT - ALL BUCKETS")
         report_lines.append("=" * 60)
@@ -326,12 +298,10 @@ def get_detailed_failure_report(sync_result: dict) -> str:
         for bucket_summary in sync_result["bucket_summaries"]:
             if bucket_summary.get("failed_files") or "error" in bucket_summary:
                 report_lines.append(f"\nBucket: {bucket_summary['bucket']}")
-
                 if "error" in bucket_summary:
                     report_lines.append(
                         f"  Bucket-level error: {bucket_summary['error']}"
                     )
-
                 if bucket_summary.get("failed_files"):
                     report_lines.append(
                         f"  Failed files ({len(bucket_summary['failed_files'])}):"
@@ -340,7 +310,6 @@ def get_detailed_failure_report(sync_result: dict) -> str:
                         report_lines.append(f"    - {failed['key']}")
                         report_lines.append(f"      Error: {failed['error']}")
     else:
-        # Single bucket result
         report_lines.append("=" * 60)
         report_lines.append(
             f"SYNC FAILURE REPORT - BUCKET: {sync_result.get('bucket', 'Unknown')}"
@@ -349,7 +318,6 @@ def get_detailed_failure_report(sync_result: dict) -> str:
 
         if "error" in sync_result:
             report_lines.append(f"\nBucket-level error: {sync_result['error']}")
-
         if sync_result.get("failed_files"):
             report_lines.append(f"\nFailed files ({len(sync_result['failed_files'])}):")
             for failed in sync_result["failed_files"]:

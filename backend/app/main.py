@@ -8,6 +8,7 @@ from app.routers import (
     share_files,
     authentication,
     synchronization,
+    files,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
@@ -36,10 +37,11 @@ async def root():
     return {"message": "Welcome! Go to /docs to see the API documentation."}
 
 
+app.include_router(files.router)
+app.include_router(authentication.router)
+app.include_router(share_files.router)
+app.include_router(synchronization.router)
 app.include_router(aws_buckets.router)
 app.include_router(aws_files.router)
 app.include_router(minio_buckets.router)
 app.include_router(minio_files.router)
-app.include_router(share_files.router)
-app.include_router(synchronization.router)
-app.include_router(authentication.router)
