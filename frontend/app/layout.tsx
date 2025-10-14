@@ -4,14 +4,13 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Analytics } from "@vercel/analytics/next";
 import { Suspense } from "react";
-import "./globals.css";
 import {
   Plus_Jakarta_Sans as V0_Font_Plus_Jakarta_Sans,
   IBM_Plex_Mono as V0_Font_IBM_Plex_Mono,
   Lora as V0_Font_Lora,
 } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
-
+import "./globals.css";
 // Initialize fonts
 const _plusJakartaSans = V0_Font_Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -27,9 +26,8 @@ const _lora = V0_Font_Lora({
 });
 
 export const metadata: Metadata = {
-  title: "v0 App",
-  description: "Created with v0",
-  generator: "v0.app",
+  title: "CloudFlow+",
+  description: "A file sharing and S3 buckets management tool",
 };
 
 export default function RootLayout({
@@ -43,6 +41,9 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
     >
+      <head>
+        <link rel="icon" href="/icon.png" />
+      </head>
       <body className={`font-sans`}>
         <ThemeProvider
           attribute="class"

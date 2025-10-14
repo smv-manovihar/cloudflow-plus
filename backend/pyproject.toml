@@ -10,9 +10,13 @@ dependencies = [
     "boto3>=1.40.50",
     "fastapi>=0.119.0",
     "minio>=7.2.18",
+    "pillow>=11.3.0",
+    "pwdlib[bcrypt]>=0.2.1",
+    "pyjwt>=2.10.1",
     "python-dotenv>=1.1.1",
     "python-multipart>=0.0.20",
     "python-socketio>=5.14.1",
+    "qrcode>=8.2",
     "sqlalchemy>=2.0.44",
     "uvicorn>=0.37.0",
 ]

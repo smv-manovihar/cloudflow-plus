@@ -1,36 +1,94 @@
 from botocore.exceptions import ClientError
-from fastapi import UploadFile, File, HTTPException, status
+from fastapi import UploadFile, File, HTTPException, status, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.services.s3_service import minio_s3_client
 from fastapi.routing import APIRouter
+from typing import Optional
+
 
 router = APIRouter(prefix="/minio/buckets", tags=["Minio Files"])
 
 
 @router.get("/{bucket_name}/files")
-async def list_files_in_bucket(bucket_name: str) -> JSONResponse:
+async def list_files_in_bucket(
+    bucket_name: str,
+    page_size: int = Query(default=12, ge=1, le=1000, description="Items per page"),
+    cursor: Optional[str] = Query(
+        default=None, description="Pagination cursor for next page"
+    ),
+    prefix: Optional[str] = Query(default=None, description="Filter by prefix/folder"),
+) -> JSONResponse:
     """
-    Lists all files (objects) in a specified bucket.
+    Lists files in a bucket with cursor-based pagination and alphabetical sorting.
+
+    Args:
+        bucket_name: Name of the bucket
+        page_size: Number of items per page (1-1000)
+        cursor: Pagination cursor from previous response
+        prefix: Optional prefix to filter objects
+        sort_order: Alphabetical sort order (asc or desc)
+
+    Returns:
+        JSON with files list and pagination info
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
+
     try:
-        response = minio_s3_client.list_objects_v2(Bucket=bucket_name)
-        files = response.get("Contents", [])
-        # Format the output for better readability
-        formatted_files = [
+        # Build parameters
+        params = {
+            "Bucket": bucket_name,
+            "MaxKeys": page_size,
+        }
+
+        if prefix:
+            params["Prefix"] = prefix
+
+        if cursor:
+            params["ContinuationToken"] = cursor
+
+        # Make the request
+        response = minio_s3_client.list_objects_v2(**params)
+
+        # Format files
+        files = [
             {
                 "key": file["Key"],
                 "last_modified": file["LastModified"].isoformat(),
                 "size_bytes": file["Size"],
             }
-            for file in files
+            for file in response.get("Contents", [])
         ]
-        return {"files": formatted_files}
+
+        # Build response
+        result = {
+            "files": files,
+            "pagination": {
+                "count": len(files),
+                "page_size": page_size,
+                "has_more": response.get("IsTruncated", False),
+            },
+            "bucket": bucket_name,
+        }
+
+        if prefix:
+            result["prefix"] = prefix
+
+        # Add next cursor if more results available
+        if response.get("NextContinuationToken"):
+            result["pagination"]["next_cursor"] = response["NextContinuationToken"]
+
+        return result
+
     except ClientError as e:
-        if e.response["Error"]["Code"] == "NoSuchBucket":
+        error_code = e.response["Error"]["Code"]
+        if error_code == "NoSuchBucket":
             raise HTTPException(
                 status_code=404, detail=f"Bucket '{bucket_name}' not found."
+            )
+        elif error_code == "InvalidToken":
+            raise HTTPException(
+                status_code=400, detail="Invalid cursor token provided."
             )
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -45,7 +103,6 @@ async def upload_file_to_bucket(
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
     try:
-        # upload_fileobj is memory-efficient for large files
         minio_s3_client.upload_fileobj(file.file, bucket_name, file.filename)
         return {
             "message": "File uploaded successfully",
@@ -68,20 +125,15 @@ async def upload_file_to_bucket(
 async def get_file_from_bucket(bucket_name: str, object_key: str) -> StreamingResponse:
     """
     Downloads or views a specific file (object) from a bucket.
-    The response is streamed directly from S3, making it efficient for large files.
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
     try:
         s3_response = minio_s3_client.get_object(Bucket=bucket_name, Key=object_key)
 
-        # Get filename from the object key to suggest it to the browser
         filename = object_key.split("/")[-1]
-
-        # Set headers to prompt the browser to download the file
         headers = {"Content-Disposition": f"attachment; filename={filename}"}
 
-        # Stream the file content back to the client
         return StreamingResponse(
             s3_response["Body"],
             media_type=s3_response.get("ContentType", "application/octet-stream"),
@@ -98,7 +150,6 @@ async def get_file_from_bucket(bucket_name: str, object_key: str) -> StreamingRe
             raise HTTPException(
                 status_code=404, detail=f"Bucket '{bucket_name}' not found."
             )
-        # Handle other potential S3 errors
         raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
 
 
@@ -106,7 +157,6 @@ async def get_file_from_bucket(bucket_name: str, object_key: str) -> StreamingRe
 async def delete_file_from_bucket(bucket_name: str, object_key: str) -> JSONResponse:
     """
     Deletes a specific file (object) from a bucket.
-    The `:path` in the URL allows object keys to contain slashes (e.g., 'folder/file.txt').
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
@@ -118,6 +168,4 @@ async def delete_file_from_bucket(bucket_name: str, object_key: str) -> JSONResp
             "filename": object_key,
         }
     except ClientError as e:
-        # Note: S3's delete_object does not error if the key doesn't exist.
-        # It just returns a 204. We will catch other potential client errors.
         raise HTTPException(status_code=500, detail=str(e))

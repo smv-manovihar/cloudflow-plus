@@ -1,36 +1,59 @@
-"use client"
+"use client";
 
-import { useMemo, useState } from "react"
-import { useParams } from "next/navigation"
-import { Sidebar } from "@/components/sidebar"
-import { UploadDropzone } from "@/components/upload-dropzone"
-import { Input } from "@/components/ui/input"
-import { FileList, type FileItem } from "@/components/file-list"
-import { ShareDialog } from "@/components/share-dialog"
-import { Breadcrumbs } from "@/components/breadcrumbs"
-import { UploadProgress } from "@/components/upload-progress"
+import { useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import { Sidebar } from "@/components/sidebar";
+import { UploadDropzone } from "@/components/upload-dropzone";
+import { Input } from "@/components/ui/input";
+import { FileList, type FileItem } from "@/components/file-list";
+import { ShareDialog } from "@/components/share-dialog";
+import { Breadcrumbs } from "@/components/breadcrumbs";
+import { UploadProgress } from "@/components/upload-progress";
 
 export default function BucketDetailPage() {
-  const params = useParams<{ id: string }>()
-  const bucketId = params?.id || "bucket"
+  const params = useParams<{ id: string }>();
+  const bucketId = params?.id || "bucket";
 
   const [files, setFiles] = useState<FileItem[]>([
-    { id: "f1", name: "README.md", type: "file", size: "2 KB", updatedAt: "2025-08-01" },
-    { id: "f2", name: "assets", type: "folder", size: "-", updatedAt: "2025-08-02" },
-    { id: "f3", name: "logo.png", type: "file", size: "128 KB", updatedAt: "2025-08-05" },
-  ])
-  const [query, setQuery] = useState("")
-  const [shareFor, setShareFor] = useState<FileItem | null>(null)
+    {
+      id: "f1",
+      name: "README.md",
+      type: "file",
+      size: "2 KB",
+      updatedAt: "2025-08-01",
+    },
+    {
+      id: "f2",
+      name: "assets",
+      type: "folder",
+      size: "-",
+      updatedAt: "2025-08-02",
+    },
+    {
+      id: "f3",
+      name: "logo.png",
+      type: "file",
+      size: "128 KB",
+      updatedAt: "2025-08-05",
+    },
+  ]);
+  const [query, setQuery] = useState("");
+  const [shareFor, setShareFor] = useState<FileItem | null>(null);
 
   // Upload progress states
-  const [isUploading, setIsUploading] = useState(false)
-  const [clientPct, setClientPct] = useState(0)
-  const [sseUrl, setSseUrl] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false);
+  const [clientPct, setClientPct] = useState(0);
+  const [sseUrl, setSseUrl] = useState<string | null>(null);
 
   const filtered = useMemo(
-    () => (query ? files.filter((f) => f.name.toLowerCase().includes(query.toLowerCase())) : files),
-    [files, query],
-  )
+    () =>
+      query
+        ? files.filter((f) =>
+            f.name.toLowerCase().includes(query.toLowerCase())
+          )
+        : files,
+    [files, query]
+  );
 
   function appendUploaded(newFiles: File[]) {
     const mapped: FileItem[] = newFiles.map((f, i) => ({
@@ -39,19 +62,19 @@ export default function BucketDetailPage() {
       type: "file",
       size: `${Math.max(1, Math.round(f.size / 1024))} KB`,
       updatedAt: new Date().toISOString().slice(0, 10),
-    }))
-    setFiles((prev) => [...mapped, ...prev])
+    }));
+    setFiles((prev) => [...mapped, ...prev]);
   }
 
   // Upload with client progress (XHR) + storage progress (SSE)
   async function uploadFiles(selected: File[]) {
-    if (!selected.length) return
-    setIsUploading(true)
-    setClientPct(0)
-    setSseUrl(null)
+    if (!selected.length) return;
+    setIsUploading(true);
+    setClientPct(0);
+    setSseUrl(null);
 
-    const totalBytes = selected.reduce((acc, f) => acc + f.size, 0)
-    let sentBytes = 0
+    const totalBytes = selected.reduce((acc, f) => acc + f.size, 0);
+    let sentBytes = 0;
 
     for (const file of selected) {
       // Init upload to receive SSE progress URL (simulated)
@@ -59,42 +82,45 @@ export default function BucketDetailPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: file.name, bucket: bucketId }),
-      })
-      const initData = (await initRes.json()) as { uploadId: string; sseUrl: string }
-      setSseUrl(initData.sseUrl)
+      });
+      const initData = (await initRes.json()) as {
+        uploadId: string;
+        sseUrl: string;
+      };
+      setSseUrl(initData.sseUrl);
 
       // Send file to backend with XHR to capture client-side progress
       await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhr.open("POST", "/api/uploads")
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/uploads");
         xhr.upload.onprogress = (ev) => {
           if (ev.lengthComputable) {
-            const current = sentBytes + ev.loaded
-            const pct = (current / totalBytes) * 100
-            setClientPct(pct)
+            const current = sentBytes + ev.loaded;
+            const pct = (current / totalBytes) * 100;
+            setClientPct(pct);
           }
-        }
+        };
         xhr.onload = () => {
-          sentBytes += file.size
-          setClientPct((sentBytes / totalBytes) * 100)
-          resolve()
-        }
-        xhr.onerror = () => reject(new Error("Upload failed"))
-        const form = new FormData()
-        form.append("file", file)
-        form.append("uploadId", initData.uploadId)
-        form.append("bucket", bucketId as string)
-        xhr.send(form)
-      })
+          sentBytes += file.size;
+          setClientPct((sentBytes / totalBytes) * 100);
+          resolve();
+        };
+        xhr.onerror = () => reject(new Error("Upload failed"));
+        const form = new FormData();
+        form.append("file", file);
+        form.append("uploadId", initData.uploadId);
+        form.append("bucket", bucketId as string);
+        xhr.send(form);
+      });
     }
 
     // Wrap up UI
-    appendUploaded(selected)
+    appendUploaded(selected);
     setTimeout(() => {
-      setIsUploading(false)
-      setSseUrl(null)
-      setClientPct(0)
-    }, 600)
+      setIsUploading(false);
+      setSseUrl(null);
+      setClientPct(0);
+    }, 600);
   }
 
   return (
@@ -102,8 +128,16 @@ export default function BucketDetailPage() {
       <Sidebar />
       <main className="p-4 md:p-6">
         <header className="mb-6">
-          <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: "Buckets", href: "/" }, { label: bucketId }]} />
-          <h1 className="mt-4 text-balance text-2xl font-semibold tracking-tight">{bucketId}</h1>
+          <Breadcrumbs
+            items={[
+              { label: "Home", href: "/" },
+              { label: "Buckets", href: "/" },
+              { label: bucketId },
+            ]}
+          />
+          <h1 className="mt-4 text-balance text-2xl font-semibold tracking-tight">
+            {bucketId}
+          </h1>
           <div className="mt-4">
             <label htmlFor="search" className="sr-only">
               Search files
@@ -120,7 +154,9 @@ export default function BucketDetailPage() {
 
         <section className="mb-6 grid gap-4" aria-label="Upload files">
           <UploadDropzone onFiles={uploadFiles} />
-          {isUploading ? <UploadProgress clientProgress={clientPct} sseUrl={sseUrl} /> : null}
+          {isUploading ? (
+            <UploadProgress clientProgress={clientPct} sseUrl={sseUrl} />
+          ) : null}
         </section>
 
         <section aria-label="File browser">
@@ -131,13 +167,17 @@ export default function BucketDetailPage() {
               // implement download in real app
             }}
             onDelete={(item) => {
-              setFiles((prev) => prev.filter((f) => f.id !== item.id))
+              setFiles((prev) => prev.filter((f) => f.id !== item.id));
             }}
           />
         </section>
       </main>
 
-      <ShareDialog item={shareFor} open={!!shareFor} onOpenChange={(open) => !open && setShareFor(null)} />
+      <ShareDialog
+        item={shareFor}
+        open={!!shareFor}
+        onOpenChange={(open) => !open && setShareFor(null)}
+      />
     </div>
-  )
+  );
 }

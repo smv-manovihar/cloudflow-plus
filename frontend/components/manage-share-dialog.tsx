@@ -104,6 +104,13 @@ export function ManageShareDialog({
                 <SelectValue placeholder="Choose a duration" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="1m">1 minute</SelectItem>
+                <SelectItem value="5m">5 minutes</SelectItem>
+                <SelectItem value="15m">15 minutes</SelectItem>
+                <SelectItem value="30m">30 minutes</SelectItem>
+                <SelectItem value="1h">1 hour</SelectItem>
+                <SelectItem value="6h">6 hours</SelectItem>
+                <SelectItem value="12h">12 hours</SelectItem>
                 <SelectItem value="1d">1 day</SelectItem>
                 <SelectItem value="7d">7 days</SelectItem>
                 <SelectItem value="30d">30 days</SelectItem>
@@ -117,7 +124,7 @@ export function ManageShareDialog({
             <Label>QR code</Label>
             <div className="flex items-center gap-4">
               <Image
-                src={qrSrc || "/placeholder.svg?height=160&width=160&query=qr%20code%20for%20shared%20link"}
+                src={qrSrc || null}
                 alt="QR code for shared link"
                 width={160}
                 height={160}

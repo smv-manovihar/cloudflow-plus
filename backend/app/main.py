@@ -1,7 +1,17 @@
 import os
 from fastapi import FastAPI
-from app.api.routers import aws_buckets, aws_files, minio_buckets, minio_files
+from app.routers import (
+    aws_buckets,
+    aws_files,
+    minio_buckets,
+    minio_files,
+    share_files,
+    authentication,
+    synchronization,
+)
 from fastapi.middleware.cors import CORSMiddleware
+from app.database import engine, Base
+from app.core.config import FRONTEND_URL
 
 app = FastAPI(
     title="CloudFlow API",
@@ -9,9 +19,12 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Create database tables
+Base.metadata.create_all(bind=engine)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("FRONTEND_URL")],
+    allow_origins=[FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,3 +40,6 @@ app.include_router(aws_buckets.router)
 app.include_router(aws_files.router)
 app.include_router(minio_buckets.router)
 app.include_router(minio_files.router)
+app.include_router(share_files.router)
+app.include_router(synchronization.router)
+app.include_router(authentication.router)

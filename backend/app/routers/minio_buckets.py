@@ -33,17 +33,8 @@ async def create_bucket(bucket_name: str) -> JSONResponse:
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
     try:
-        # For AWS, LocationConstraint is required for regions other than us-east-1
-        # For MinIO, this is often ignored but good to have for compatibility.
-        location_constraint = (
-            {
-                "LocationConstraint": AWS_REGION,
-            }
-            if AWS_REGION != "us-east-1"
-            else {}
-        )
         minio_s3_client.create_bucket(
-            Bucket=bucket_name, CreateBucketConfiguration=location_constraint
+            Bucket=bucket_name
         )
         return {"message": f"Bucket '{bucket_name}' created successfully."}
     except ClientError as e:
