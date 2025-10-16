@@ -1,46 +1,50 @@
-"use client"
+import React from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { cn } from "@/lib/utils"
+interface BreadcrumbsProps {
+  prefix: string;
+  router: ReturnType<typeof useRouter>;
+}
 
-type Crumb = { label: string; href?: string }
-
-export function Breadcrumbs({ items }: { items?: Crumb[] }) {
-  const pathname = usePathname()
-  const segments = pathname.split("/").filter(Boolean)
-
-  const autoItems: Crumb[] = [
-    { label: "Home", href: "/" },
-    ...segments.map((seg, idx) => {
-      const href = "/" + segments.slice(0, idx + 1).join("/")
-      return { label: decodeURIComponent(seg), href: idx === segments.length - 1 ? undefined : href }
-    }),
-  ]
-
-  const crumbs = items?.length ? items : autoItems
+export default function Breadcrumbs({ prefix, router }: BreadcrumbsProps) {
+  const breadcrumbParts = prefix ? prefix.split("/").filter(Boolean) : [];
 
   return (
-    <nav aria-label="Breadcrumbs" className="text-sm text-muted-foreground">
-      <ol className="flex items-center gap-2">
-        {crumbs.map((c, i) => {
-          const isLast = i === crumbs.length - 1
-          return (
-            <li key={i} className={cn(!isLast && "hover:text-foreground transition-colors")}>
-              {c.href && !isLast ? (
-                <Link href={c.href}>{c.label}</Link>
-              ) : (
-                <span className="text-foreground">{c.label}</span>
-              )}
-              {!isLast && (
-                <span aria-hidden="true" className="mx-2">
-                  /
-                </span>
-              )}
-            </li>
-          )
-        })}
-      </ol>
-    </nav>
-  )
+    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Button
+        variant="link"
+        size="sm"
+        onClick={() => router.push("/")}
+        className={cn(
+          "p-0 h-auto",
+          !prefix && "text-foreground font-medium pointer-events-none"
+        )}
+      >
+        Home
+      </Button>
+      {breadcrumbParts.map((part, index) => (
+        <div key={index} className="flex items-center gap-2">
+          <span>/</span>
+          {index === breadcrumbParts.length - 1 ? (
+            <span className="text-foreground font-medium">{part}</span>
+          ) : (
+            <Button
+              variant="link"
+              size="sm"
+              onClick={() => {
+                const newPrefix =
+                  breadcrumbParts.slice(0, index + 1).join("/") + "/";
+                router.push(`/?prefix=${encodeURIComponent(newPrefix)}`);
+              }}
+              className="p-0 h-auto"
+            >
+              {part}
+            </Button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }

@@ -22,7 +22,11 @@ const eslintConfig = [
     rules: {
       "no-console": "warn",
       "no-debugger": "warn",
-      "no-unused-vars": "warn",
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
       "react/no-unknown-property": "off",
       "react/react-in-jsx-scope": "off",
       "@next/next/no-html-link-for-pages": "off",

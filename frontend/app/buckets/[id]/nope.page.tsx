@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Sidebar } from "@/components/sidebar";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { Input } from "@/components/ui/input";
 import { FileList, type FileItem } from "@/components/file-list";
@@ -124,9 +123,7 @@ export default function BucketDetailPage() {
   }
 
   return (
-    <div className="min-h-dvh grid md:grid-cols-[260px_1fr]">
-      <Sidebar />
-      <main className="p-4 md:p-6">
+        <div className="p-4 md:p-6">
         <header className="mb-6">
           <Breadcrumbs
             items={[
@@ -171,13 +168,12 @@ export default function BucketDetailPage() {
             }}
           />
         </section>
-      </main>
+        <ShareDialog
+          item={shareFor}
+          open={!!shareFor}
+          onOpenChange={(open) => !open && setShareFor(null)}
+        />
+        </div>
 
-      <ShareDialog
-        item={shareFor}
-        open={!!shareFor}
-        onOpenChange={(open) => !open && setShareFor(null)}
-      />
-    </div>
   );
 }

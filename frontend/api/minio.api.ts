@@ -17,7 +17,7 @@ async function getPresignedUrl(bucketName: string, objectKey: string, forceRenew
         downloadLinksCache[cacheKey] = { url: data.download_url, expiration };
         return data.download_url;
     } catch (error) {
-        const axError = error as AxiosError;
+        const axError = error as AxiosError<{detail: string}>;
         toast.error(axError.response?.data?.detail || "Error getting download link");
         throw error;
     }
@@ -42,7 +42,7 @@ const listBuckets = async () => {
         return {success: true, buckets: data.buckets};
     } catch (error) {
         console.log(error);
-        const axError = error as AxiosError;
+        const axError = error as AxiosError<{detail: string}>;
         toast.error(axError.response?.data?.detail || "Error listing buckets");
         return {success: false, buckets: []};
     }
@@ -54,7 +54,7 @@ const getBucketFiles = async (bucketName: string) => {
         return {success: true, files: data.files};
     } catch (error) {
         console.error(error);
-        const axError = error as AxiosError;
+        const axError = error as AxiosError<{detail: string}>;
         toast.error(axError.response?.data?.detail || "Error listing files");
         return {success: false, files: []};
     }
@@ -86,7 +86,7 @@ const uploadFile = async (bucketName: string, file: File) => {
         return {success: false, error: 'Unknown error'};
     } catch (error) {
         console.error(error);
-        const axError = error as AxiosError;
+        const axError = error as AxiosError<{detail: string}>;
         toast.error(axError.response?.data?.detail || "Error uploading file");
         return {success: false, error};
     }
@@ -98,7 +98,7 @@ const createBucket = async (bucketName: string) => {
         return {success: true, data};
     } catch (error) {
         console.error(error);
-        const axError = error as AxiosError;
+        const axError = error as AxiosError<{detail: string}>;
         toast.error(axError.response?.data?.detail || "Error creating bucket");
         return {success: false};
     }
@@ -110,7 +110,7 @@ const deleteBucket = async (bucketName: string) => {
         return {success: true, data};
     } catch (error) {
         console.error(error);
-        const axError = error as AxiosError;
+        const axError = error as AxiosError<{detail: string}>;
         toast.error(axError.response?.data?.detail || "Error deleting bucket");
         return {success: false, error};
     }
@@ -122,7 +122,7 @@ const getBucketInfo = async (bucketName: string) => {
         return {success: true, data};
     } catch (error) {
         console.error(error);
-        const axError = error as AxiosError;
+        const axError = error as AxiosError<{detail: string}>;
         toast.error(axError.response?.data?.detail || "Error getting bucket info");
         return {success: false, error};
     }
@@ -134,7 +134,7 @@ const updateBucketConfig = async (bucketName: string, payload: any) => {
         return {success: true, data};
     } catch (error) {
         console.error(error);
-        const axError = error as AxiosError;
+        const axError = error as AxiosError<{detail: string}>;
         toast.error(axError.response?.data?.detail || "Error updating bucket config");
         return {success: false, error};
     }
@@ -147,7 +147,7 @@ const downloadFileFromBucket = async (bucketName: string, objectKey: string) => 
         await downloadBlobFromUrl(url, objectKey);
         return {success: true};
     } catch (error) {
-        const axError = error as AxiosError;
+        const axError = error as AxiosError<{detail: string}>;
         if (!renewed && (axError.response?.status === 403 || axError.response?.status === 401)) {
             // expired, renew
             renewed = true;
@@ -157,7 +157,7 @@ const downloadFileFromBucket = async (bucketName: string, objectKey: string) => 
                 return {success: true};
             } catch (renewError) {
                 console.error(renewError);
-                const renewAxError = renewError as AxiosError;
+                const renewAxError = renewError as AxiosError<{detail: string}>;
                 toast.error(renewAxError.response?.data?.detail || "Error downloading file after renewal");
                 return {success: false, error: renewError};
             }
@@ -175,7 +175,7 @@ const deleteFileFromBucket = async (bucketName: string, objectKey: string) => {
         return {success: true, data};
     } catch (error) {
         console.error(error);
-        const axError = error as AxiosError;
+        const axError = error as AxiosError<{detail: string}>;
         toast.error(axError.response?.data?.detail || "Error deleting file");
         return {success: false, error};
     }

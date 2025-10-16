@@ -7,7 +7,7 @@ from typing import Optional, List
 
 from app.core.config import BUCKET_NAME
 
-router = APIRouter(tags=["Files"])
+router = APIRouter(prefix="/files", tags=["Files"])
 
 
 def is_synced_to_aws(bucket_name: str, object_key: str) -> bool:
@@ -44,7 +44,10 @@ def is_synced_to_aws(bucket_name: str, object_key: str) -> bool:
         raise HTTPException(status_code=500, detail=f"Sync check error: {str(e)}")
 
 
-@router.get("/files")
+from datetime import datetime, timezone
+
+
+@router.get("/")
 async def list_files_in_bucket(
     page_size: int = Query(default=12, ge=1, le=1000, description="Items per page"),
     cursor: Optional[str] = Query(
@@ -54,23 +57,17 @@ async def list_files_in_bucket(
 ) -> JSONResponse:
     """
     Lists files in a bucket with cursor-based pagination and alphabetical sorting.
-
-    Args:
-        page_size: Number of items per page (1-1000)
-        cursor: Pagination cursor from previous response
-        prefix: Optional prefix to filter objects
-
-    Returns:
-        JSON with files list, pagination info, and sync status
+    Folders (CommonPrefixes) are returned first, followed by files (Contents),
+    each group sorted alphabetically by the immediate-name (relative to prefix).
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
 
     try:
-        # Build parameters
         params = {
             "Bucket": BUCKET_NAME,
             "MaxKeys": page_size,
+            "Delimiter": "/",  # return CommonPrefixes for "folders"
         }
 
         if prefix:
@@ -79,27 +76,62 @@ async def list_files_in_bucket(
         if cursor:
             params["ContinuationToken"] = cursor
 
-        # Make the request
         response = minio_s3_client.list_objects_v2(**params)
 
-        # Format files
-        files = []
-        for file in response.get("Contents", []):
-            synced = is_synced_to_aws(BUCKET_NAME, file["Key"])
-            files.append(
+        # Build folders (CommonPrefixes) and files (Contents) lists separately
+        common_prefixes = response.get("CommonPrefixes", [])
+        contents = response.get("Contents", [])
+
+        def relative_name(key: str) -> str:
+            base = prefix or ""
+            if base and key.startswith(base):
+                return key[len(base) :]
+            return key
+
+        folders = []
+        for cp in common_prefixes:
+            p = cp.get("Prefix")
+            if not p:
+                continue
+            name = relative_name(p).rstrip("/")
+            folders.append(
                 {
-                    "key": file["Key"],
-                    "last_modified": file["LastModified"].isoformat(),
-                    "size_bytes": file["Size"],
-                    "synced": synced,
+                    "key": p,
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
+                    "size_bytes": 0,
+                    "synced": False,
                 }
             )
 
-        # Build response
+        files = []
+        for obj in contents:
+            # Skip the "folder placeholder" object that equals the prefix itself (if present)
+            if prefix and obj["Key"] == prefix:
+                continue
+            files.append(
+                {
+                    "key": obj["Key"],
+                    "last_modified": (
+                        obj["LastModified"].isoformat()
+                        if obj.get("LastModified")
+                        else datetime.now(timezone.utc).isoformat()
+                    ),
+                    "size_bytes": obj.get("Size", 0),
+                    "synced": is_synced_to_aws(BUCKET_NAME, obj["Key"]),
+                }
+            )
+
+        # Sort each group alphabetically by their immediate (relative) name (case-insensitive)
+        folders.sort(key=lambda f: relative_name(f["key"]).rstrip("/").lower())
+        files.sort(key=lambda f: relative_name(f["key"]).lower())
+
+        # Combine: folders first, then files
+        combined = folders + files
+
         result = {
-            "files": files,
+            "files": combined,
             "pagination": {
-                "count": len(files),
+                "count": len(combined),
                 "page_size": page_size,
                 "has_more": response.get("IsTruncated", False),
             },
@@ -109,7 +141,6 @@ async def list_files_in_bucket(
         if prefix:
             result["prefix"] = prefix
 
-        # Add next cursor if more results available
         if response.get("NextContinuationToken"):
             result["pagination"]["next_cursor"] = response["NextContinuationToken"]
 
@@ -128,7 +159,7 @@ async def list_files_in_bucket(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/files", status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResponse:
     """
     Uploads multiple files to the specified bucket.
@@ -148,13 +179,11 @@ async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResp
     for file in files:
         try:
             minio_s3_client.upload_fileobj(file.file, BUCKET_NAME, file.filename)
-            synced = is_synced_to_aws(BUCKET_NAME, file.filename)
             results.append(
                 {
                     "filename": file.filename,
                     "message": "File uploaded successfully",
                     "bucket": BUCKET_NAME,
-                    "synced": synced,
                 }
             )
         except ClientError as e:
@@ -180,9 +209,8 @@ async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResp
                 }
             )
         finally:
-            await file.close()  # Ensure file is closed after processing
+            await file.close()
 
-    # If there are any errors, raise an HTTPException with details
     if errors:
         raise HTTPException(
             status_code=207,  # Multi-Status
@@ -200,7 +228,7 @@ async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResp
     }
 
 
-@router.get("/files/{object_key:path}")
+@router.get("/{object_key:path}")
 async def get_file_from_bucket(object_key: str) -> StreamingResponse:
     """
     Downloads or views a specific file (object) from a bucket.
@@ -236,7 +264,32 @@ async def get_file_from_bucket(object_key: str) -> StreamingResponse:
         raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
 
 
-@router.delete("/files/{object_key:path}", status_code=status.HTTP_200_OK)
+@router.get("/{object_key:path}/info")
+async def get_file_info(object_key: str) -> JSONResponse:
+    """
+    Get file info (metadata) for a specific file (object) in a bucket.
+    """
+    if not minio_s3_client:
+        raise HTTPException(status_code=503, detail="S3 client not initialized")
+    try:
+        head = minio_s3_client.head_object(Bucket=BUCKET_NAME, Key=object_key)
+        return JSONResponse(
+            content={
+                "bucket": head.get("Bucket"),
+                "object_key": object_key,
+                "content_length": head.get("ContentLength"),
+                "last_modified": head.get("LastModified"),
+                "synced": is_synced_to_aws(BUCKET_NAME, object_key),
+            }
+        )
+    except ClientError as exc:
+        error_code = exc.response["Error"]["Code"]
+        if error_code in ["NoSuchKey", "NoSuchBucket"]:
+            raise HTTPException(status_code=404, detail=f"Object or bucket not found")
+        raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
+
+
+@router.delete("/{object_key:path}", status_code=status.HTTP_200_OK)
 async def delete_file_from_bucket(object_key: str, sync: bool) -> JSONResponse:
     """
     Deletes a specific file (object) from a bucket.

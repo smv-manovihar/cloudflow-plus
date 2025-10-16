@@ -1,47 +1,45 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useTheme } from "next-themes"
-import { Sun, Moon } from "lucide-react"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
-
-type Mode = "light" | "dark"
+import { Moon, Sun } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 export function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme()
+  const [isDark, setIsDark] = useState(false)
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     setMounted(true)
+    const isDarkMode = document.documentElement.classList.contains("dark")
+    setIsDark(isDarkMode)
   }, [])
 
-  if (!mounted) {
-    return <div className="h-12 w-full" aria-hidden />
+  const toggleTheme = () => {
+    const html = document.documentElement
+    if (isDark) {
+      html.classList.remove("dark")
+      setIsDark(false)
+    } else {
+      html.classList.add("dark")
+      setIsDark(true)
+    }
   }
 
-  const isDark = resolvedTheme === "dark"
+  if (!mounted) return null
 
   return (
-    <div className="grid gap-2">
-      <span className="text-xs text-muted-foreground">Appearance</span>
-      <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
-        <div className="flex items-center gap-2 text-sm">
-          <Sun aria-hidden className="size-4 opacity-70" />
-          <Label htmlFor="theme-switch" className="cursor-pointer">
-            Dark mode
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch
-            id="theme-switch"
-            checked={isDark}
-            onCheckedChange={(checked) => setTheme(checked ? ("dark" as Mode) : ("light" as Mode))}
-            aria-label="Toggle dark mode"
-          />
-          <Moon aria-hidden className="size-4 opacity-70" />
-        </div>
-      </div>
-    </div>
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={toggleTheme}
+      aria-label="Toggle theme"
+      className="transition-transform duration-300"
+    >
+      {isDark ? (
+        <Sun className="h-5 w-5 rotate-0 scale-100 transition-all duration-300" />
+      ) : (
+        <Moon className="h-5 w-5 rotate-0 scale-100 transition-all duration-300" />
+      )}
+    </Button>
   )
 }

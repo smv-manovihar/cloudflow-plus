@@ -1,16 +1,16 @@
 import type React from "react";
 import type { Metadata } from "next";
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
+import { Toaster } from "sonner";
 import { Analytics } from "@vercel/analytics/next";
-import { Suspense } from "react";
+import { AppLayout } from "@/components/app-layout";
+import "./globals.css";
+
 import {
   Plus_Jakarta_Sans as V0_Font_Plus_Jakarta_Sans,
   IBM_Plex_Mono as V0_Font_IBM_Plex_Mono,
   Lora as V0_Font_Lora,
 } from "next/font/google";
-import { ThemeProvider } from "@/components/theme-provider";
-import "./globals.css";
+
 // Initialize fonts
 const _plusJakartaSans = V0_Font_Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -27,7 +27,7 @@ const _lora = V0_Font_Lora({
 
 export const metadata: Metadata = {
   title: "CloudFlow+",
-  description: "A file sharing and S3 buckets management tool",
+  description: "Modern cloud storage and secure file sharing application",
 };
 
 export default function RootLayout({
@@ -36,24 +36,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
-    >
+    <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="icon" href="/icon.png" />
       </head>
-      <body className={`font-sans`}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
-          <Analytics />
-        </ThemeProvider>
+      <body className="font-sans antialiased">
+        <Toaster position="top-right" />
+        <AppLayout>{children}</AppLayout>
+        <Analytics />
       </body>
     </html>
   );
