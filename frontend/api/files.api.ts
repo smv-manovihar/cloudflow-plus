@@ -1,7 +1,6 @@
 import { api } from "@/config/api.config";
 import { DeleteFileErrorResponse, DeleteFileResponse, FileInfoErrorResponse, FileInfoResponse, ListFilesErrorResponse, ListFilesResponse, PaginationInfo, S3File, UploadErrorResult, UploadFilesErrorResponse, UploadFilesResponse, UploadResult } from "@/types/files.types";
 import { AxiosError } from "axios";
-import { toast } from "sonner";
 
 
 export const listFiles = async (
@@ -105,8 +104,8 @@ export const uploadFiles = async (
         return {
           success: false,
           error: errorMessage,
-          successful_uploads: detail.successful_uploads,
-          failed_uploads: detail.failed_uploads,
+          successful_uploads: detail.successful_uploads || [],
+          failed_uploads: detail.failed_uploads || [],
         };
       }
     }
@@ -120,6 +119,8 @@ export const uploadFiles = async (
     return {
       success: false,
       error: errorMessage,
+      successful_uploads: [],
+      failed_uploads: [],
     };
   }
 };

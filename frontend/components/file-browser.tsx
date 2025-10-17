@@ -22,13 +22,11 @@ import PaginationControls from "./pagination-controls";
 import { Button } from "./ui/button";
 import {
   CloudSun,
-  Folder,
   FolderPlus,
   Grid3x3,
   List,
   RefreshCw,
   Search,
-  Zap,
 } from "lucide-react";
 import { Input } from "./ui/input";
 import { cn } from "@/lib/utils";
