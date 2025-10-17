@@ -79,8 +79,6 @@ export const uploadFiles = async (
       },
     });
 
-    toast.success(data.message || "Files uploaded successfully");
-
     return {
       success: true,
       message: data.message,
@@ -213,8 +211,6 @@ export const deleteFile = async (
         sync,
       },
     });
-
-    toast.success(data.message || "File deleted successfully");
 
     return {
       success: true,

@@ -17,7 +17,7 @@ export function BrandIcon({ className }: { className?: string }) {
   return (
     <Link
       href="/"
-      className={cn("flex h-8 w-8 items-center justify-center font-extrabold text-sm", className)}
+      className={cn("flex h-8 w-8 items-center justify-center font-extrabold text-2xl", className)}
       aria-label="CloudFlow+ home"
     >
       <span className="text-primary">C</span>

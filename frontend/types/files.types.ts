@@ -56,12 +56,6 @@ export interface ListFilesErrorResponse {
   error?: string;
 }
 
-export interface UploadResult {
-  filename: string;
-  message: string;
-  bucket: string;
-}
-
 export interface UploadErrorResult {
   filename: string;
   error: string;
@@ -73,13 +67,6 @@ export interface UploadFilesResponse {
   message: string;
   bucket: string;
   uploads: UploadResult[];
-}
-
-export interface UploadFilesErrorResponse {
-  success: false;
-  error: string;
-  successful_uploads?: UploadResult[];
-  failed_uploads?: UploadErrorResult[];
 }
 
 export interface FileInfoResponse {
@@ -107,4 +94,29 @@ export interface DeleteFileResponse {
 export interface DeleteFileErrorResponse {
   success: false;
   error: string;
+}
+
+export interface UploadResult extends S3File {
+  message: string;
+  bucket: string;
+}
+
+export interface UploadErrorResult {
+  filename: string; // Name of the file that failed
+  error: string; // Error message
+  status_code: number; // HTTP status code (e.g., 404, 500)
+}
+
+export interface UploadFilesResponse {
+  success: true;
+  message: string;
+  bucket: string;
+  uploads: UploadResult[];
+}
+
+export interface UploadFilesErrorResponse {
+  success: false;
+  error: string;
+  successful_uploads: UploadResult[];
+  failed_uploads: UploadErrorResult[];
 }

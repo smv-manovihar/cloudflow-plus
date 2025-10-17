@@ -162,7 +162,7 @@ async def list_files_in_bucket(
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResponse:
     """
-    Uploads multiple files to the specified bucket.
+    Uploads multiple files to the specified S3 bucket using boto3.
 
     Args:
         files: List of files to upload
@@ -178,10 +178,34 @@ async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResp
 
     for file in files:
         try:
-            minio_s3_client.upload_fileobj(file.file, BUCKET_NAME, file.filename)
+            # Upload the file to S3
+            minio_s3_client.upload_fileobj(
+                file.file,
+                BUCKET_NAME,
+                file.filename,
+                ExtraArgs={
+                    "ContentType": file.content_type or "application/octet-stream"
+                },
+            )
+
+            # Fetch metadata for the uploaded file
+            try:
+                metadata = minio_s3_client.head_object(
+                    Bucket=BUCKET_NAME, Key=file.filename
+                )
+                size_bytes = metadata["ContentLength"]
+                last_modified = metadata["LastModified"].isoformat()
+            except ClientError as meta_err:
+                # If head_object fails, provide fallback values
+                size_bytes = 0
+                last_modified = datetime.now(timezone.utc).isoformat()
+
             results.append(
                 {
                     "filename": file.filename,
+                    "size_bytes": size_bytes,
+                    "last_modified": last_modified,
+                    "synced": False,
                     "message": "File uploaded successfully",
                     "bucket": BUCKET_NAME,
                 }

@@ -15,31 +15,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { UploadFilesErrorResponse, UploadFilesResponse } from "@/types/files.types";
 
-// Types for the upload response (unchanged)
-interface UploadResult {
-  // Define structure based on your API response
-  [key: string]: any;
-}
-
-interface UploadErrorResult {
-  // Define structure based on your API response
-  [key: string]: any;
-}
-
-interface UploadFilesResponse {
-  success: true;
-  message?: string;
-  bucket?: string;
-  uploads?: UploadResult[];
-}
-
-interface UploadFilesErrorResponse {
-  success: false;
-  error: string;
-  successful_uploads?: UploadResult[];
-  failed_uploads?: UploadErrorResult[];
-}
 
 export function UploadDropzone({
   className,

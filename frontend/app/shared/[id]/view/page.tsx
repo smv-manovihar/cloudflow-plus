@@ -65,7 +65,7 @@ export default function SharedLinkViewPage() {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="border-b border-border bg-card p-4 md:p-6 animate-in fade-in slide-in-from-top-2 duration-500">
+      <div className="border-b border-border bg-card p-1 md:p-2animate-in fade-in slide-in-from-top-2 duration-500">
         <div className="flex items-center gap-3 mb-4">
           <Button
             variant="ghost"

@@ -14,6 +14,8 @@ import {
   PageCache,
   PaginationInfo,
   S3File,
+  UploadFilesErrorResponse,
+  UploadFilesResponse,
 } from "@/types/files.types";
 import FileList from "./files-list";
 import PaginationControls from "./pagination-controls";
@@ -72,7 +74,10 @@ export default function FileBrowser() {
   const transformFiles = useCallback(
     (s3Files: S3File[]): FileItem[] => {
       return s3Files
-        .filter((f) => !(prefix && f.key === prefix))
+        .filter((f) => {
+          if (!f || typeof f.key !== "string") return false;
+          return !(prefix && f.key === prefix);
+        })
         .map((f) => {
           const isFolder = f.key.endsWith("/");
           const rel = relativeName(f.key);
@@ -290,7 +295,7 @@ export default function FileBrowser() {
     router.push(`/?prefix=${encodeURIComponent(newPrefix)}`);
   };
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     try {
       const res = await loadFiles(null, 12);
       if (res) {
@@ -306,7 +311,7 @@ export default function FileBrowser() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [loadFiles]);
 
   const handleSearch = () => {
     if (searchQuery.trim()) {
@@ -344,23 +349,12 @@ export default function FileBrowser() {
   }, [currentPageIndex, pageHistory]);
 
   const handleUploadComplete = useCallback(
-    async (response: any) => {
-      if (response.success) {
-        toast.success(
-          `${response.uploads?.length || 0} file(s) uploaded successfully`
-        );
-        const currentCursor = currentPagination?.current_cursor ?? null;
-        const res = await loadFiles(currentCursor, 12);
-        if (res) {
-          setPageHistory((prev) => {
-            const copy = [...prev];
-            copy[currentPageIndex] = res;
-            return copy;
-          });
-        }
+    (response: UploadFilesResponse | UploadFilesErrorResponse) => {
+      if (response.success && response.uploads) {
+        handleRefresh();
       }
     },
-    [currentPagination, currentPageIndex, loadFiles]
+    [handleRefresh]
   );
 
   const handleCreateFolderConfirm = useCallback(() => {
@@ -510,6 +504,7 @@ export default function FileBrowser() {
           onFolderCreated={handleFolderCreated}
           onCreateCancelled={handleCreateCancelled}
         />
+
         <FileList
           files={currentPageData}
           isLoading={isLoading}

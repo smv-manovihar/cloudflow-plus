@@ -1,70 +1,107 @@
-
-// For sync_bucket endpoint success response
-export interface BucketSyncResult {
-  synced_files: number;
-  skipped_files?: number;
-  failed_files: Array<{
-    object_key: string;
-    error: string;
-  }>;
-  total_files?: number; // Inferred as sum of synced + skipped + failed
-  // Add other fields if returned by sync_single_bucket, e.g., timestamp, summary
-}
-
-// For sync_file endpoint success/failure response (unified)
-export interface FileSyncResult {
-  status: 'synced' | 'updated' | 'skipped' | 'failed';
+export interface CreateSharedLinkPayload {
+  bucket: string;
   object_key: string;
-  error?: string; // Only present if status === 'failed'
+  password?: string;
+  expires_in_minutes?: number;
+  enabled?: boolean;
 }
 
-// For sync_bucket_async endpoint success response
-export interface AsyncSyncResult {
-  status: 'accepted';
-  message: string;
-}
-
-// Wrapper types for API functions (consistent with listFiles pattern)
-export interface SyncBucketResponse {
-  success: true;
-  result: BucketSyncResult;
-}
-
-export interface SyncBucketErrorResponse {
-  success: false;
-  error: string;
-}
-
-export type SyncBucketResultType = SyncBucketResponse | SyncBucketErrorResponse;
-
-export interface SyncFilePayload {
-  source_bucket?: string;
-  destination_bucket?: string;
+export interface SharedLink {
+  id: string;
+  name: string;
+  bucket: string;
   object_key: string;
+  expires_at?: string;
+  enabled: boolean;
+  has_password: boolean;
+  qr_code?: string;
+  user_id?: number;
 }
 
-export interface SyncFileResponse {
+export interface SharedLinkList {
+  items: SharedLink[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface UpdateSharedLinkPayload {
+  enabled?: boolean;
+  expires_at?: string; // ISO datetime
+  password?: string;
+}
+
+export interface DownloadLinkResult {
+  url: string;
+  expires_in: number; // seconds
+}
+
+export interface FileInfo {
+  name: string;
+  bucket: string;
+  size_bytes?: number;
+}
+
+// Result types for async operations
+export type CreateSharedLinkResultType = {
   success: true;
-  result: FileSyncResult;
-}
-
-export interface SyncFileErrorResponse {
+  result: SharedLink;
+} | {
   success: false;
   error: string;
-  object_key?: string;
-}
+};
 
-export type SyncFileResultType = SyncFileResponse | SyncFileErrorResponse;
-
-
-export interface SyncBucketAsyncResponse {
+export type GetDownloadLinkResultType = {
   success: true;
-  result: AsyncSyncResult;
-}
-
-export interface SyncBucketAsyncErrorResponse {
+  result: DownloadLinkResult;
+} | {
   success: false;
   error: string;
-}
+};
 
-export type SyncBucketAsyncResultType = SyncBucketAsyncResponse | SyncBucketAsyncErrorResponse;
+export type GetQrCodeResultType = {
+  success: true;
+  result: string; // base64 PNG
+} | {
+  success: false;
+  error: string;
+};
+
+export type GetLinkInfoResultType = {
+  success: true;
+  result: SharedLink;
+} | {
+  success: false;
+  error: string;
+};
+
+export type ListSharedLinksResultType = {
+  success: true;
+  result: SharedLinkList;
+} | {
+  success: false;
+  error: string;
+};
+
+export type GetFileInfoResultType = {
+  success: true;
+  result: FileInfo;
+} | {
+  success: false;
+  error: string;
+};
+
+export type UpdateSharedLinkResultType = {
+  success: true;
+  result: SharedLink;
+} | {
+  success: false;
+  error: string;
+};
+
+export type DeleteSharedLinkResultType = {
+  success: true;
+} | {
+  success: false;
+  error: string;
+};

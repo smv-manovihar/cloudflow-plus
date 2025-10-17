@@ -84,7 +84,7 @@ router = APIRouter(prefix="/share", tags=["Share Files"])
 
 # ============================================================================
 # Endpoints
-# ============================================================================
+#===========================================================================
 
 
 @router.post(
@@ -106,6 +106,7 @@ def create_shared_link(
     # Generate new UUID
     new_id = str(uuid.uuid4())
     name = payload.object_key.split("/")[-1]
+
     # Hash password if provided
     hashed_password = None
     if payload.password:
@@ -115,7 +116,15 @@ def create_shared_link(
             )
         hashed_password = Hash.encrypt(payload.password)
 
-    # Create new shared link
+    # Generate QR code and encode to base64
+    download_url = f"{FRONTEND_URL}/shared/{new_id}/download"
+    qr_img = qrcode.make(download_url)
+    buf = io.BytesIO()
+    qr_img.save(buf, format="PNG")
+    buf.seek(0)
+    qr_code_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    # Create new shared link, including the qr_code
     link = SharedLink(
         id=new_id,
         bucket=payload.bucket,
@@ -124,7 +133,7 @@ def create_shared_link(
         password=hashed_password,
         expires_at=expires_at,
         enabled=bool(payload.enabled),
-        qr_code=None,
+        qr_code=qr_code_b64,  # Assign the generated QR code here
         user_id=current_user.id,
     )
 
@@ -195,7 +204,7 @@ def generate_qr(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Generate a QR code for a shared link."""
+    """Retrieve and serve the QR code for a shared link."""
     # Validate UUID
     try:
         uid = uuid.UUID(link_id)
@@ -207,27 +216,17 @@ def generate_qr(
     if not link:
         raise HTTPException(status_code=404, detail="Shared link not found")
 
-    # ADDED: Check ownership
+    # Check ownership
     if link.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
 
-    download_url = f"{FRONTEND_URL}/shared/{str(link.id)}/download"
+    # Check if QR code exists in the database
+    if not link.qr_code:
+        raise HTTPException(status_code=404, detail="QR code not found for this link.")
 
-    # Generate QR code
-    qr_img = qrcode.make(download_url)
-    buf = io.BytesIO()
-    qr_img.save(buf, format="PNG")
-    buf.seek(0)
-
-    # Encode to base64 and save to database
-    b64 = base64.b64encode(buf.getvalue()).decode()
-    link.qr_code = b64
-    db.add(link)
-    db.commit()
-    db.refresh(link)
-
-    # Return QR code image
-    return StreamingResponse(io.BytesIO(base64.b64decode(b64)), media_type="image/png")
+    # Decode the base64 string and return the image
+    image_bytes = base64.b64decode(link.qr_code)
+    return StreamingResponse(io.BytesIO(image_bytes), media_type="image/png")
 
 
 @router.get("/me/{link_id}", response_model=SharedLinkOut)
@@ -286,7 +285,6 @@ def list_my_shared_links(
     # Filter expired links
     if not include_expired:
         now = datetime.now(timezone.utc)
-        # FIXED: Use or_() instead of or
         query = query.filter(
             or_(SharedLink.expires_at == None, SharedLink.expires_at > now)
         )

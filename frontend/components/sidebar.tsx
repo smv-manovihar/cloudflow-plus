@@ -7,7 +7,13 @@ import { Home, Share2, Settings, LogOut, X, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BrandIcon, BrandWordmark } from "@/components/brand-wordmark";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/components/theme-toggle"; // Adjust path as needed
+import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const navItems = [
   { href: "/", label: "Home", icon: Home },
@@ -118,9 +124,9 @@ export function Sidebar({
               variant="ghost"
               size="sm"
               onClick={handleLogout}
-              className="w-full justify-start gap-3 text-sidebar-foreground hover:bg-sidebar-accent text-destructive hover:text-destructive"
+              className="w-full justify-start gap-3 text-destructive hover:!bg-destructive hover:!text-destructive-foreground transition-colors duration-200"
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut className="h-4 w-4 transition-colors duration-200" />
               <span className="text-sm">Logout</span>
             </Button>
           </div>
@@ -133,16 +139,12 @@ export function Sidebar({
   return (
     <nav
       className={cn(
-        "flex flex-col h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300",
+        "flex flex-col h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 overflow-hidden",
         isExpanded ? "w-64" : "w-20"
       )}
     >
-      <div className="p-4 border-b border-sidebar-border">
-        {isExpanded ? (
-          <BrandWordmark className="text-sidebar-foreground" />
-        ) : (
-          <BrandIcon className="text-sidebar-foreground" />
-        )}
+      <div className="p-4 border-b border-sidebar-border flex justify-center">
+        {isExpanded ? <BrandWordmark /> : <BrandIcon />}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -150,62 +152,87 @@ export function Sidebar({
           const Icon = item.icon;
           const isActive = pathname === item.href;
           return (
-            <Link
+            <div
               key={item.href}
-              href={item.href}
               className={cn(
-                "flex items-center gap-3 px-4 py-2 rounded-lg transition-colors",
-                isExpanded ? "justify-start" : "justify-center",
-                isActive
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent"
+                "overflow-hidden transition-all duration-300 ease-in-out",
+                isExpanded ? "w-full" : "w-full"
               )}
-              title={!isExpanded ? item.label : undefined}
             >
-              <Icon className="h-5 w-5 flex-shrink-0" />
-              {isExpanded && (
-                <span className="text-sm font-medium">{item.label}</span>
-              )}
-            </Link>
+              <Link
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 px-2 py-2 rounded-full transition-all duration-300 ease-in-out",
+                  isActive
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent"
+                )}
+                title={!isExpanded ? item.label : undefined}
+              >
+                <Icon className={cn("h-5 w-5 flex-shrink-0")} />
+                {isExpanded && (
+                  <span className="text-sm font-medium whitespace-nowrap">
+                    {item.label}
+                  </span>
+                )}
+              </Link>
+            </div>
           );
         })}
       </div>
 
       <div
         className={cn(
-          "border-t border-sidebar-border p-4 space-y-3",
+          "border-t border-sidebar-border px-4 py-3 space-y-3 mb-8",
           !isExpanded && "flex flex-col items-center"
         )}
       >
-        {isExpanded && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sidebar-accent/50">
-            <User className="h-4 w-4 text-sidebar-foreground flex-shrink-0" />
-            <div>
-              <p className="text-xs font-semibold text-sidebar-foreground truncate">
-                {userName}
-              </p>
-              <p className="text-xs text-sidebar-foreground/70 truncate">
-                {userEmail}
-              </p>
-            </div>
-          </div>
-        )}
-        <div className={cn("flex justify-center", isExpanded ? "w-full" : "")}>
+        <div
+          className={cn("flex justify-center", isExpanded ? "w-full" : "w-8")}
+        >
           <ThemeToggle collapsed={!isExpanded} />
         </div>
-        <Button
-          variant="ghost"
-          size={isExpanded ? "sm" : "icon"}
-          onClick={handleLogout}
-          className={cn(
-            "hover:bg-sidebar-accent text-destructive hover:text-destructive transition-colors",
-            isExpanded ? "w-full justify-start gap-3" : ""
-          )}
-          title={!isExpanded ? "Logout" : undefined}
-        >
-          <LogOut className="h-4 w-4" />
-          {isExpanded && <span className="text-sm">Logout</span>}
-        </Button>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <div
+              className={cn(
+                "overflow-hidden transition-all duration-300 ease-in-out cursor-pointer",
+                isExpanded ? "w-full" : "w-8"
+              )}
+            >
+              <div
+                className={cn(
+                  "flex items-center transition-all duration-300 ease-in-out",
+                  isExpanded
+                    ? "gap-2 px-3 py-2 rounded-lg bg-secondary hover:bg-secondary/80 w-full"
+                    : "justify-center w-8 h-8 rounded-lg hover:bg-sidebar-primary hover:text-sidebar-primary-foreground"
+                )}
+              >
+                <User className="h-4 w-4 text-sidebar-foreground flex-shrink-0" />
+                {isExpanded && (
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="text-xs font-semibold text-sidebar-foreground truncate">
+                      {userName}
+                    </p>
+                    <p className="text-xs text-sidebar-foreground/70 truncate">
+                      {userEmail}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="right" className="w-48">
+            <DropdownMenuItem
+              onClick={handleLogout}
+              className="flex items-center text-destructive hover:!bg-destructive hover:!text-destructive-foreground transition-colors duration-200"
+            >
+              <LogOut className="h-4 w-4 mr-2 transition-colors duration-200" />
+              Logout
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </nav>
   );
