@@ -2,19 +2,23 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from app.database import Base
 import uuid
+from datetime import datetime, timezone
 
 
 class SharedLink(Base):
     __tablename__ = "shared_links"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    name = Column(String, nullable=False)
     bucket = Column(String, nullable=False)
     object_key = Column(String, nullable=False)
     password = Column(String)
-    expires_at = Column(DateTime(timezone=True))
     enabled = Column(Boolean, nullable=False)
     qr_code = Column(String)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    updated_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True))
     user = relationship("User", back_populates="shared_links")
 
     def __repr__(self):

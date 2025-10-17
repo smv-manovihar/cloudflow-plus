@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import { Analytics } from "@vercel/analytics/next";
 import { AppLayout } from "@/components/app-layout";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 import {
@@ -41,9 +42,11 @@ export default function RootLayout({
         <link rel="icon" href="/icon.png" />
       </head>
       <body className="font-sans antialiased">
-        <Toaster position="top-right" />
-        <AppLayout>{children}</AppLayout>
-        <Analytics />
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <Toaster position="top-right" />
+          <AppLayout>{children}</AppLayout>
+          <Analytics />
+        </ThemeProvider>
       </body>
     </html>
   );

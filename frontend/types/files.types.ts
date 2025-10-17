@@ -4,15 +4,6 @@ export interface S3File {
   size_bytes: number;
   synced: boolean;
 }
-
-export interface PaginationInfo {
-  count: number;
-  page_size: number;
-  has_more: boolean;
-  next_cursor?: string | null;
-  current_cursor?: string | null;
-}
-
 export interface FileItem {
   name: string;
   size: number;
@@ -39,4 +30,81 @@ export interface Toast {
   message: string;
   duration?: number;
   progress?: number;
+}
+
+export interface PaginationInfo {
+  count: number;
+  page_size: number;
+  has_more: boolean;
+  next_cursor: string | null;
+  current_cursor: string | null;
+}
+
+export interface ListFilesResponse {
+  success: true;
+  files: S3File[];
+  pagination: PaginationInfo;
+  bucket: string | null;
+  prefix?: string;
+}
+
+export interface ListFilesErrorResponse {
+  success: false;
+  files: [];
+  pagination: null;
+  bucket: null;
+  error?: string;
+}
+
+export interface UploadResult {
+  filename: string;
+  message: string;
+  bucket: string;
+}
+
+export interface UploadErrorResult {
+  filename: string;
+  error: string;
+  status_code: number;
+}
+
+export interface UploadFilesResponse {
+  success: true;
+  message: string;
+  bucket: string;
+  uploads: UploadResult[];
+}
+
+export interface UploadFilesErrorResponse {
+  success: false;
+  error: string;
+  successful_uploads?: UploadResult[];
+  failed_uploads?: UploadErrorResult[];
+}
+
+export interface FileInfoResponse {
+  success: true;
+  bucket: string;
+  object_key: string;
+  content_length: number;
+  last_modified: string;
+  synced: boolean;
+}
+
+export interface FileInfoErrorResponse {
+  success: false;
+  error: string;
+}
+
+export interface DeleteFileResponse {
+  success: true;
+  message: string;
+  bucket: string;
+  filename: string;
+  synced: boolean;
+}
+
+export interface DeleteFileErrorResponse {
+  success: false;
+  error: string;
 }

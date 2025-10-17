@@ -1,8 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useToast } from "@/components/toast-provider";
 import { toast } from "sonner";
 import {
   deleteFile,
@@ -19,11 +18,28 @@ import {
 import FileList from "./files-list";
 import PaginationControls from "./pagination-controls";
 import { Button } from "./ui/button";
-import { CloudSun, Grid3x3, List, RefreshCw, Search, Zap } from "lucide-react";
+import {
+  CloudSun,
+  Folder,
+  FolderPlus,
+  Grid3x3,
+  List,
+  RefreshCw,
+  Search,
+  Zap,
+} from "lucide-react";
 import { Input } from "./ui/input";
 import { cn } from "@/lib/utils";
 import { UploadDropzone } from "./upload-dropzone"; // Adjust path as needed
 import { syncBucket, syncFile } from "@/api/sync.api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function FileBrowser() {
   const searchParams = useSearchParams();
@@ -40,6 +56,10 @@ export default function FileBrowser() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
+  const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [pendingFolderName, setPendingFolderName] = useState<string>("");
+
   const relativeName = useCallback(
     (key: string) => {
       const base = prefix || "";
@@ -156,7 +176,6 @@ export default function FileBrowser() {
     const toastId = toast.loading(`Syncing ${fileName}...`);
     const res = await syncFile(fileKey);
     if (res.success) {
-      // Update local state to reflect sync success immediately
       setCurrentPageData((prev) =>
         prev.map((f) => (f.key === fileKey ? { ...f, synced: true } : f))
       );
@@ -344,6 +363,43 @@ export default function FileBrowser() {
     [currentPagination, currentPageIndex, loadFiles]
   );
 
+  const handleCreateFolderConfirm = useCallback(() => {
+    const name = newFolderName.trim();
+    if (name && !name.includes("/") && !name.includes("..")) {
+      setPendingFolderName(name);
+      setNewFolderName("");
+      setShowCreateFolderDialog(false);
+    } else {
+      toast.error('Invalid folder name. Avoid slashes and ".."', {
+        duration: 3000,
+      });
+    }
+  }, [newFolderName]);
+
+  const handleCreateCancelled = useCallback(() => {
+    setPendingFolderName("");
+    toast.info("Folder creation cancelled. No files were uploaded.", {
+      duration: 2000,
+    });
+  }, []);
+
+  const handleFolderCreated = useCallback(
+    (name: string) => {
+      const newPrefix = `${prefix || ""}${name}/`;
+      router.push(`/?prefix=${encodeURIComponent(newPrefix)}`);
+      setPendingFolderName("");
+      toast.success(`Folder "${name}" created successfully!`, {
+        duration: 2000,
+      });
+    },
+    [prefix, router]
+  );
+
+  const isValidFolderName = useCallback((name: string) => {
+    const trimmed = name.trim();
+    return trimmed && !trimmed.includes("/") && !trimmed.includes("..");
+  }, []);
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       <div className="border-b border-border bg-card p-4 md:p-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
@@ -393,6 +449,15 @@ export default function FileBrowser() {
             <Button
               variant="outline"
               size="icon"
+              onClick={() => setShowCreateFolderDialog(true)}
+              title="Create new folder"
+              className="transition-all hover:scale-105 bg-transparent"
+            >
+              <FolderPlus className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
               onClick={handleRefresh}
               disabled={isLoading}
               title="Refresh file list"
@@ -421,10 +486,29 @@ export default function FileBrowser() {
       </div>
 
       <div className="flex-1 flex flex-col overflow-auto">
+        {pendingFolderName && (
+          <div className="m-4 p-4 bg-primary/30 rounded-lg flex flex-col sm:flex-row sm:items-center gap-3">
+            <p className="text-sm flex-1">
+              Upload files to create &quot;/{pendingFolderName}&quot;.
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleCreateCancelled}
+              className="sm:ml-auto"
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
+
         <UploadDropzone
           className="m-4 mb-2 p-8 border-2 border-dashed border-gray-300 rounded-lg"
           onFilesUploaded={handleUploadComplete}
           prefix={prefix}
+          folderToCreate={pendingFolderName || undefined}
+          onFolderCreated={handleFolderCreated}
+          onCreateCancelled={handleCreateCancelled}
         />
         <FileList
           files={currentPageData}
@@ -451,6 +535,50 @@ export default function FileBrowser() {
           </>
         )}
       </div>
+
+      <Dialog
+        open={showCreateFolderDialog}
+        onOpenChange={setShowCreateFolderDialog}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Folder</DialogTitle>
+            <DialogDescription>
+              Enter a name for the new folder. You will then select at least one
+              file to upload, which will create the folder.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="Folder name (no slashes)"
+              onKeyDown={(e) =>
+                e.key === "Enter" && handleCreateFolderConfirm()
+              }
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowCreateFolderDialog(false);
+                setNewFolderName("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleCreateFolderConfirm}
+              disabled={!isValidFolderName(newFolderName)}
+            >
+              Next: Select Files
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

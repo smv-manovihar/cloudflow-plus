@@ -34,6 +34,7 @@ class CreateSharedLinkIn(BaseModel):
 
 class SharedLinkOut(BaseModel):
     id: uuid.UUID
+    name: str
     bucket: str
     object_key: str
     expires_at: Optional[datetime]
@@ -52,8 +53,8 @@ class SharedLinkListOut(BaseModel):
 
 class UpdateSharedLinkIn(BaseModel):
     enabled: Optional[bool] = None
-    expires_in_minutes: Optional[int] = Field(default=None, ge=1, le=60 * 24 * 30)
-    password: Optional[str] = None  # FIXED: Removed duplicate Optional
+    expires_at: Optional[datetime] = None
+    password: Optional[str] = None
 
 
 # ============================================================================
@@ -104,7 +105,7 @@ def create_shared_link(
 
     # Generate new UUID
     new_id = str(uuid.uuid4())
-
+    name = payload.object_key.split("/")[-1]
     # Hash password if provided
     hashed_password = None
     if payload.password:
@@ -118,6 +119,7 @@ def create_shared_link(
     link = SharedLink(
         id=new_id,
         bucket=payload.bucket,
+        name=name,
         object_key=payload.object_key,
         password=hashed_password,
         expires_at=expires_at,
@@ -133,6 +135,7 @@ def create_shared_link(
     return SharedLinkOut(
         id=link.id,
         bucket=link.bucket,
+        name=link.name,
         object_key=link.object_key,
         expires_at=link.expires_at,
         enabled=link.enabled,
@@ -251,6 +254,7 @@ def get_link_info_for_owner(
 
     return SharedLinkOut(
         id=link.id,
+        name=link.name,
         bucket=link.bucket,
         object_key=link.object_key,
         expires_at=link.expires_at,
@@ -322,7 +326,7 @@ def list_my_shared_links(
     )
 
 
-@router.get("/{link_id}/fileinfo")
+@router.get("/{link_id}/public")
 def get_file_info(link_id: str, db: Session = Depends(get_db)):
     """Get S3 object metadata for a shared link."""
     # Validate UUID
@@ -346,10 +350,9 @@ def get_file_info(link_id: str, db: Session = Depends(get_db)):
 
     # Return file information
     info = {
+        "name": link.name,
         "bucket": link.bucket,
-        "object_key": link.object_key,
-        "content_length": head.get("ContentLength"),
-        "last_modified": head.get("LastModified"),
+        "size_bytes": head.get("ContentLength"),
     }
 
     return info
@@ -367,7 +370,7 @@ def update_shared_link(
     try:
         uid = uuid.UUID(link_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid link id")
+        raise HTTPException(status_code=400, detail="Invalid Link")
 
     # Fetch link from database
     link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
@@ -400,7 +403,7 @@ def update_shared_link(
                     status_code=400, detail="Password must be at least 4 characters"
                 )
             link.password = Hash.encrypt(payload.password)
-
+    link.updated_at = datetime.now(timezone.utc)
     # Save changes
     db.add(link)
     db.commit()
@@ -408,6 +411,7 @@ def update_shared_link(
 
     return SharedLinkOut(
         id=link.id,
+        name=link.name,
         bucket=link.bucket,
         object_key=link.object_key,
         expires_at=link.expires_at,
