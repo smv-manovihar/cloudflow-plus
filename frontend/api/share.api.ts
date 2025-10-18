@@ -2,12 +2,14 @@ import { AxiosError } from 'axios';
 import { api } from "@/config/api.config";
 import { CreateSharedLinkPayload, CreateSharedLinkResultType, DeleteSharedLinkResultType, DownloadLinkResult, FileInfo, GetDownloadLinkResultType, GetFileInfoResultType, GetLinkInfoResultType, GetQrCodeResultType, ListSharedLinksResultType, SharedLink, SharedLinkList, UpdateSharedLinkPayload, UpdateSharedLinkResultType } from '@/types/share.types';
 
-
-// API Functions
-
 export const createSharedLink = async (payload: CreateSharedLinkPayload): Promise<CreateSharedLinkResultType> => {
   try {
-    const { data } = await api.post("/share/create", payload);
+    // Convert expires_at to ISO string if provided
+    const payloadToSend = {
+      ...payload,
+      expires_at: payload.expires_at ? payload.expires_at.toISOString() : undefined,
+    };
+    const { data } = await api.post("/share/create", payloadToSend);
 
     // Validate and map to SharedLink
     const result: SharedLink = {
@@ -15,7 +17,7 @@ export const createSharedLink = async (payload: CreateSharedLinkPayload): Promis
       name: data.name,
       bucket: data.bucket,
       object_key: data.object_key,
-      expires_at: data.expires_at,
+      expires_at: data.expires_at, // Keep as string (ISO datetime)
       enabled: data.enabled,
       has_password: data.has_password,
       qr_code: data.qr_code,
@@ -110,7 +112,7 @@ export const getLinkInfo = async (linkId: string): Promise<GetLinkInfoResultType
       name: data.name,
       bucket: data.bucket,
       object_key: data.object_key,
-      expires_at: data.expires_at,
+      expires_at: data.expires_at, // Keep as string (ISO datetime)
       enabled: data.enabled,
       has_password: data.has_password,
       qr_code: data.qr_code,
@@ -155,12 +157,12 @@ export const listSharedLinks = async (
 
     // Validate and map to SharedLinkList
     const result: SharedLinkList = {
-      items: data.items.map((item: any) => ({
+      items: data.items.map((item: SharedLink) => ({
         id: item.id,
         name: item.name,
         bucket: item.bucket,
         object_key: item.object_key,
-        expires_at: item.expires_at,
+        expires_at: item.expires_at, // Keep as string (ISO datetime)
         enabled: item.enabled,
         has_password: item.has_password,
         qr_code: item.qr_code,
@@ -225,7 +227,12 @@ export const updateSharedLink = async (
   payload: UpdateSharedLinkPayload
 ): Promise<UpdateSharedLinkResultType> => {
   try {
-    const { data } = await api.put(`/share/${linkId}`, payload);
+    // Convert expires_at to ISO string if provided
+    const payloadToSend = {
+      ...payload,
+      expires_at: payload.expires_at ? payload.expires_at.toISOString() : undefined,
+    };
+    const { data } = await api.put(`/share/${linkId}`, payloadToSend);
 
     // Validate and map to SharedLink
     const result: SharedLink = {
@@ -233,7 +240,7 @@ export const updateSharedLink = async (
       name: data.name,
       bucket: data.bucket,
       object_key: data.object_key,
-      expires_at: data.expires_at,
+      expires_at: data.expires_at, // Keep as string (ISO datetime)
       enabled: data.enabled,
       has_password: data.has_password,
       qr_code: data.qr_code,

@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from botocore.exceptions import ClientError, EndpointConnectionError
 from .s3_service import aws_s3_client, minio_s3_client
 
@@ -10,7 +11,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[logging.FileHandler("s3_sync.log")],
 )
-
 logger = logging.getLogger(__name__)
 
 # ------------------- EXCEPTIONS -------------------
@@ -119,14 +119,53 @@ def sync_single_file(local_bucket: str, aws_bucket: str, key: str) -> dict:
             logger.info(f"Skipped: '{key}' is already up to date in destination.")
             return {"status": "skipped", "key": key}
 
-        status = "updated" if dest_meta else "synyed"
+        status = "updated" if dest_meta else "synced"
 
-        # 5. Perform copy using file object.
+        # 5. Prepare timestamp.
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        # 6. Get source object for upload and metadata.
+        source_resp = minio_s3_client.get_object(Bucket=local_bucket, Key=key)
+        source_body = source_resp["Body"]
+        source_metadata = source_resp.get("Metadata", {}) or source_meta.get(
+            "Metadata", {}
+        )
+
+        # 7. Upload to AWS with merged metadata.
+        aws_metadata = {
+            **source_metadata,
+            "last_synced": timestamp,
+            "synced": "true",
+            "aws_bucket": aws_bucket,
+        }
         aws_s3_client.upload_fileobj(
-            minio_s3_client.get_object(Bucket=local_bucket, Key=key)["Body"],
+            source_body,
             Bucket=aws_bucket,
             Key=key,
+            ExtraArgs={"Metadata": aws_metadata},
         )
+
+        # 8. Update MinIO source with merged metadata via server-side copy.
+        minio_metadata = {
+            **source_metadata,
+            "last_synced": timestamp,
+            "synced": "true",
+            "aws_bucket": aws_bucket,
+        }
+        copy_source = {"Bucket": local_bucket, "Key": key}
+        try:
+            minio_s3_client.copy_object(
+                Bucket=local_bucket,
+                Key=key,
+                CopySource=copy_source,
+                Metadata=minio_metadata,
+                MetadataDirective="REPLACE",
+            )
+            logger.debug(
+                f"Updated MinIO metadata for '{key}' with last_synced, synced, and aws_bucket."
+            )
+        except (ClientError, EndpointConnectionError) as ce:
+            logger.warning(f"Failed to update MinIO metadata for '{key}': {ce}")
 
         logger.info(f"Successfully {status}: {key}")
         return {"status": status, "key": key}
@@ -137,9 +176,13 @@ def sync_single_file(local_bucket: str, aws_bucket: str, key: str) -> dict:
         return {"status": "failed", "key": key, "error": error_details}
 
 
-def sync_single_bucket(bucket_name: str) -> dict:
+def sync_single_bucket(bucket_name: str, aws_bucket_name: str = None) -> dict:
     """
     Syncs all objects in a single bucket, updating files if their content has changed.
+
+    Args:
+        bucket_name: MinIO source bucket name
+        aws_bucket_name: AWS destination bucket name (defaults to bucket_name)
 
     Returns:
         dict with keys:
@@ -150,7 +193,8 @@ def sync_single_bucket(bucket_name: str) -> dict:
             - failed_files: list of dicts with 'key' and 'error' for each failure
             - error: (optional) bucket-level error message
     """
-    logger.info(f"Starting sync for single bucket: '{bucket_name}'")
+    aws_bucket = aws_bucket_name or bucket_name
+    logger.info(f"Starting sync for bucket: '{bucket_name}' to AWS '{aws_bucket}'")
 
     summary = {
         "bucket": bucket_name,
@@ -163,7 +207,7 @@ def sync_single_bucket(bucket_name: str) -> dict:
     try:
         # 1. Verify source and destination buckets exist
         _check_source_bucket_exists(minio_s3_client, bucket_name)
-        _ensure_bucket_exists(aws_s3_client, bucket_name)
+        _ensure_bucket_exists(aws_s3_client, aws_bucket)
     except S3SyncError as e:
         error_details = _extract_error_details(e)
         logger.error(
@@ -181,7 +225,7 @@ def sync_single_bucket(bucket_name: str) -> dict:
                 source_etag = obj.get("ETag", "").strip('"')
 
                 try:
-                    dest_meta = _get_object_metadata(aws_s3_client, bucket_name, key)
+                    dest_meta = _get_object_metadata(aws_s3_client, aws_bucket, key)
 
                     if dest_meta is None:
                         status = "synced"
@@ -193,12 +237,54 @@ def sync_single_bucket(bucket_name: str) -> dict:
                         status = "updated"
                         summary["files_updated"] += 1
 
-                    # Perform copy using file object
-                    aws_s3_client.upload_fileobj(
-                        minio_s3_client.get_object(Bucket=bucket_name, Key=key)["Body"],
-                        Bucket=bucket_name,
-                        Key=key,
+                    # Prepare timestamp.
+                    timestamp = datetime.now(timezone.utc).isoformat()
+
+                    # Get source object for upload and metadata.
+                    source_resp = minio_s3_client.get_object(
+                        Bucket=bucket_name, Key=key
                     )
+                    source_body = source_resp["Body"]
+                    source_metadata = source_resp.get("Metadata", {})
+
+                    # Upload to AWS with merged metadata.
+                    aws_metadata = {
+                        **source_metadata,
+                        "last_synced": timestamp,
+                        "synced": "true",
+                        "aws_bucket": aws_bucket,
+                    }
+                    aws_s3_client.upload_fileobj(
+                        source_body,
+                        Bucket=aws_bucket,
+                        Key=key,
+                        ExtraArgs={"Metadata": aws_metadata},
+                    )
+
+                    # Update MinIO source with merged metadata via server-side copy.
+                    minio_metadata = {
+                        **source_metadata,
+                        "last_synced": timestamp,
+                        "synced": "true",
+                        "aws_bucket": aws_bucket,
+                    }
+                    copy_source = {"Bucket": bucket_name, "Key": key}
+                    try:
+                        minio_s3_client.copy_object(
+                            Bucket=bucket_name,
+                            Key=key,
+                            CopySource=copy_source,
+                            Metadata=minio_metadata,
+                            MetadataDirective="REPLACE",
+                        )
+                        logger.debug(
+                            f"Updated MinIO metadata for '{key}' with last_synced, synced, and aws_bucket."
+                        )
+                    except (ClientError, EndpointConnectionError) as ce:
+                        logger.warning(
+                            f"Failed to update MinIO metadata for '{key}': {ce}"
+                        )
+
                     logger.debug(
                         f"Successfully {status} object '{key}' in bucket '{bucket_name}'."
                     )
@@ -221,9 +307,12 @@ def sync_single_bucket(bucket_name: str) -> dict:
     return summary
 
 
-def sync_all_buckets() -> dict:
+def sync_all_buckets(aws_bucket_prefix: str = None) -> dict:
     """
     Syncs all buckets from source to destination by calling sync_single_bucket for each.
+
+    Args:
+        aws_bucket_prefix: Optional prefix for AWS bucket names (e.g., append to MinIO names)
 
     Returns:
         dict with keys:
@@ -255,7 +344,10 @@ def sync_all_buckets() -> dict:
         raise S3SyncError("Could not list source buckets. Aborting sync.") from e
 
     for bucket_name in source_buckets:
-        bucket_summary = sync_single_bucket(bucket_name)
+        aws_bucket = (
+            f"{bucket_name}{aws_bucket_prefix}" if aws_bucket_prefix else bucket_name
+        )
+        bucket_summary = sync_single_bucket(bucket_name, aws_bucket)
         overall_summary["total_files_synced"] += bucket_summary.get("files_synced", 0)
         overall_summary["total_files_updated"] += bucket_summary.get("files_updated", 0)
         overall_summary["total_files_skipped"] += bucket_summary.get("files_skipped", 0)

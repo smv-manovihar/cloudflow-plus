@@ -145,9 +145,7 @@ export default function SharedLinkViewPage() {
             </Card>
 
             {/* Middle Section - Access Controls */}
-            <Card
-              className="p-6 animate-in fade-in slide-in-from-bottom-2 duration-500"
-            >
+            <Card className="p-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
               <h2 className="text-sm font-semibold text-foreground mb-4">
                 Access Controls
               </h2>
@@ -241,9 +239,7 @@ export default function SharedLinkViewPage() {
             </Card>
 
             {/* Right Section - Share URL & QR Code */}
-            <Card
-              className="p-6 animate-in fade-in slide-in-from-right-2 duration-500"
-            >
+            <Card className="p-6 animate-in fade-in slide-in-from-right-2 duration-500">
               <h2 className="text-sm font-semibold text-foreground mb-4">
                 Share
               </h2>

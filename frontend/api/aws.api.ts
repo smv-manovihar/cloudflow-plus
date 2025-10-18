@@ -176,8 +176,7 @@ const deleteFileFromBucket = async (bucketName: string, objectKey: string) => {
     } catch (error) {
         console.error(error);
         const axError = error as AxiosError<{detail: string}>;
-        toast.error(axError.response?.data?.detail || "Error deleting file");
-        return {success: false, error};
+        return {success: false, error:axError.response?.data?.detail || "Error deleting file"};
     }
 }
 

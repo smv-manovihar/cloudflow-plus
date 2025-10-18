@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import uuid
 from botocore.exceptions import ClientError
 import io
@@ -28,7 +28,7 @@ class CreateSharedLinkIn(BaseModel):
     bucket: str
     object_key: str
     password: Optional[str] = None
-    expires_in_minutes: Optional[int] = Field(default=60, ge=1, le=60 * 24 * 30)
+    expires_at: Optional[datetime] = None
     enabled: Optional[bool] = True
 
 
@@ -84,7 +84,7 @@ router = APIRouter(prefix="/share", tags=["Share Files"])
 
 # ============================================================================
 # Endpoints
-#===========================================================================
+# ============================================================================
 
 
 @router.post(
@@ -96,11 +96,15 @@ def create_shared_link(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new shared link for an S3 object."""
-    # Calculate expiration time
-    expires_at = None
-    if payload.expires_in_minutes:
-        expires_at = datetime.now(timezone.utc) + timedelta(
-            minutes=payload.expires_in_minutes
+    # Ensure expires_at is timezone-aware
+    expires_at = payload.expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    # Validate expires_at is in the future
+    if expires_at and expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=400, detail="Expiration time must be in the future"
         )
 
     # Generate new UUID
@@ -133,7 +137,7 @@ def create_shared_link(
         password=hashed_password,
         expires_at=expires_at,
         enabled=bool(payload.enabled),
-        qr_code=qr_code_b64,  # Assign the generated QR code here
+        qr_code=qr_code_b64,
         user_id=current_user.id,
     )
 
@@ -384,10 +388,15 @@ def update_shared_link(
         link.enabled = bool(payload.enabled)
 
     # Update expiration time
-    if payload.expires_in_minutes is not None:
-        link.expires_at = datetime.now(timezone.utc) + timedelta(
-            minutes=payload.expires_in_minutes
-        )
+    if payload.expires_at is not None:
+        expires_at = payload.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=400, detail="Expiration time must be in the future"
+            )
+        link.expires_at = expires_at
 
     # Update password
     if payload.password is not None:
@@ -401,6 +410,7 @@ def update_shared_link(
                     status_code=400, detail="Password must be at least 4 characters"
                 )
             link.password = Hash.encrypt(payload.password)
+
     link.updated_at = datetime.now(timezone.utc)
     # Save changes
     db.add(link)

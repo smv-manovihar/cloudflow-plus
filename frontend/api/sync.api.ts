@@ -1,7 +1,7 @@
 import { AxiosError } from 'axios';
 import { toast } from 'sonner';
 import { api } from "@/config/api.config";
-import { AsyncSyncResult, BucketSyncResult, FileSyncResult, SyncBucketAsyncResultType, SyncBucketResultType, SyncFilePayload, SyncFileResultType } from '@/types/share.types';
+import { AsyncSyncResult, BucketSyncResult, FileSyncResult, SyncBucketAsyncResultType, SyncBucketResultType, SyncFilePayload, SyncFileResultType } from '@/types/sync.types';
 
 
 export const syncBucket = async (): Promise<SyncBucketResultType> => {

@@ -15,7 +15,6 @@ import {
   Download,
   Share2,
   Trash2,
-  Check,
   MoreVertical,
   Cloud,
   CloudCheck,
@@ -29,6 +28,7 @@ interface FileListProps {
   syncingFiles: Set<string>;
   navigateUp: () => void;
   showNavigateUp?: boolean;
+  onFileClick: (fileName: string, fileKey: string) => void;
   onFolderClick: (folderName: string) => void;
   onDownload: (fileName: string, fileKey: string) => void;
   onShare: (fileName: string, fileKey: string) => void;
@@ -43,6 +43,7 @@ export default function FileList({
   syncingFiles,
   navigateUp,
   showNavigateUp = false,
+  onFileClick,
   onFolderClick,
   onDownload,
   onShare,
@@ -115,7 +116,11 @@ export default function FileList({
                   showNavigateUp ? (index + 1) * 50 : index * 50
                 }ms`,
               }}
-              onClick={() => file.isFolder && onFolderClick(file.name)}
+              onClick={() =>
+                file.isFolder
+                  ? onFolderClick(file.name)
+                  : onFileClick(file.name, file.key)
+              }
               role={file.isFolder ? "button" : undefined}
               tabIndex={file.isFolder ? 0 : -1}
               onKeyDown={(e) => {
@@ -138,7 +143,7 @@ export default function FileList({
                     <p className="text-xs text-muted-foreground">Folder</p>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      {`${file.size} MB`} • {file.modified}
+                      {`${file.size.value} ${file.size.unit}`} • {file.modified}
                     </p>
                   )}
                 </div>
@@ -319,7 +324,9 @@ export default function FileList({
                         {file.name}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {file.isFolder ? "Folder" : `${file.size} MB`}
+                        {file.isFolder
+                          ? "Folder"
+                          : `${file.size.value} ${file.size.unit}`}
                       </p>
                     </div>
                   </div>

@@ -6,7 +6,7 @@ export interface S3File {
 }
 export interface FileItem {
   name: string;
-  size: number;
+  size: { value: string; unit: string };
   modified: string;
   isFolder: boolean;
   key: string;
@@ -75,7 +75,10 @@ export interface FileInfoResponse {
   object_key: string;
   content_length: number;
   last_modified: string;
+  aws_bucket: string | null;
   synced: boolean;
+  last_synced: string | null;
+  is_shared: boolean;
 }
 
 export interface FileInfoErrorResponse {

@@ -2,7 +2,7 @@ export interface CreateSharedLinkPayload {
   bucket: string;
   object_key: string;
   password?: string;
-  expires_in_minutes?: number;
+  expires_at?: Date; // JavaScript Date object
   enabled?: boolean;
 }
 
@@ -11,7 +11,7 @@ export interface SharedLink {
   name: string;
   bucket: string;
   object_key: string;
-  expires_at?: string;
+  expires_at?: string; // ISO datetime
   enabled: boolean;
   has_password: boolean;
   qr_code?: string;
@@ -27,7 +27,7 @@ export interface SharedLinkList {
 
 export interface UpdateSharedLinkPayload {
   enabled?: boolean;
-  expires_at?: string; // ISO datetime
+  expires_at?: Date; // JavaScript Date object
   password?: string;
 }
 

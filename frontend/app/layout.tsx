@@ -11,6 +11,7 @@ import {
   IBM_Plex_Mono as V0_Font_IBM_Plex_Mono,
   Lora as V0_Font_Lora,
 } from "next/font/google";
+import { AuthProvider } from "@/context/auth-context";
 
 // Initialize fonts
 const _plusJakartaSans = V0_Font_Plus_Jakarta_Sans({
@@ -44,8 +45,10 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <Toaster position="top-right" />
+          {/* <AuthProvider> */}
           <AppLayout>{children}</AppLayout>
           <Analytics />
+          {/* </AuthProvider> */}
         </ThemeProvider>
       </body>
     </html>

@@ -3,6 +3,7 @@ import { DeleteFileErrorResponse, DeleteFileResponse, FileInfoErrorResponse, Fil
 import { AxiosError } from "axios";
 
 
+
 export const listFiles = async (
   prefix?: string,
   cursor?: string | null,
@@ -51,6 +52,7 @@ export const listFiles = async (
     };
   }
 };
+
 
 
 export const uploadFiles = async (
@@ -126,6 +128,7 @@ export const uploadFiles = async (
 };
 
 
+
 export const downloadFile = async (
   objectKey: string,
   filename?: string
@@ -163,7 +166,7 @@ export const downloadFile = async (
       axiosError?.response?.data?.detail ||
       axiosError?.message ||
       "An unknown error occurred while downloading the file.";
-
+    
     return {
       success: false,
       error: errorMessage,
@@ -183,8 +186,11 @@ export const getFileInfo = async (
       bucket: data.bucket,
       object_key: data.object_key,
       content_length: data.content_length,
-      last_modified: data.last_modified,
+      last_modified: data.last_modified ? new Date(data.last_modified).toISOString() : "",
+      aws_bucket: data.aws_bucket,
       synced: data.synced,
+      last_synced: data.last_synced,
+      is_shared: data.is_shared,
     };
   } catch (error) {
     console.error("Error getting file info:", error);
@@ -200,6 +206,7 @@ export const getFileInfo = async (
     };
   }
 };
+
 
 
 export const deleteFile = async (

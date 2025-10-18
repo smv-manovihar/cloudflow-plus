@@ -40,6 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { formatFileSize } from "@/lib/helpers";
 
 export default function FileBrowser() {
   const searchParams = useSearchParams();
@@ -80,9 +81,7 @@ export default function FileBrowser() {
           const isFolder = f.key.endsWith("/");
           const rel = relativeName(f.key);
           const name = isFolder ? rel.replace(/\/$/, "") : rel;
-          const size = f.size_bytes
-            ? Math.round((f.size_bytes / (1024 * 1024)) * 100) / 100
-            : 0;
+          const size = formatFileSize(f.size_bytes || 0);
           return {
             name,
             size,
@@ -291,6 +290,10 @@ export default function FileBrowser() {
   const handleFolderClick = (folderName: string) => {
     const newPrefix = `${prefix}${folderName}/`;
     router.push(`/?prefix=${encodeURIComponent(newPrefix)}`);
+  };
+
+  const handleFileClick = (fileName: string, fileKey: string) => {
+    router.push(`/${encodeURIComponent(fileKey)}`);
   };
 
   const handleRefresh = useCallback(async () => {
@@ -510,6 +513,7 @@ export default function FileBrowser() {
           syncingFiles={syncingFiles}
           showNavigateUp={prefix.endsWith("/")}
           navigateUp={handleNavigateUp}
+          onFileClick={handleFileClick}
           onFolderClick={handleFolderClick}
           onDownload={handleDownload}
           onShare={handleShare}
