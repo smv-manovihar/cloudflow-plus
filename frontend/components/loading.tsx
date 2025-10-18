@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { BrandIcon } from "./brand-wordmark";
+import { BrandIcon } from "./layout/brand-wordmark";
 
 export function Loading() {
   return (

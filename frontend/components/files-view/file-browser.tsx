@@ -18,8 +18,8 @@ import {
   UploadFilesResponse,
 } from "@/types/files.types";
 import FileList from "./files-list";
-import PaginationControls from "./pagination-controls";
-import { Button } from "./ui/button";
+import PaginationControls from "../layout/pagination-controls";
+import { Button } from "../ui/button";
 import {
   CloudSun,
   FolderPlus,
@@ -28,9 +28,9 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react";
-import { Input } from "./ui/input";
+import { Input } from "../ui/input";
 import { cn } from "@/lib/utils";
-import { UploadDropzone } from "./upload-dropzone"; // Adjust path as needed
+import { UploadDropzone } from "./upload-dropzone";
 import { syncBucket, syncFile } from "@/api/sync.api";
 import {
   Dialog,

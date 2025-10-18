@@ -1,9 +1,19 @@
 from botocore.exceptions import ClientError
-from fastapi import UploadFile, File, HTTPException, status, Query, Depends
+from fastapi import (
+    UploadFile,
+    File,
+    Request,
+    Response,
+    HTTPException,
+    status,
+    Query,
+    Depends,
+)
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from fastapi.routing import APIRouter
 from typing import Optional, List, Dict, Any
+import os
 
 from app.services.s3_service import minio_s3_client, aws_s3_client
 from app.database import get_db
@@ -626,30 +636,110 @@ async def get_file_info(
         raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
 
 
-@router.get("/{object_key:path}")
-async def get_file_from_bucket(object_key: str) -> StreamingResponse:
+def get_file_extension(object_key: str) -> str:
+    """Extract file extension from object key."""
+    return os.path.splitext(object_key)[1].lower()
+
+
+def get_content_type(extension: str) -> str:
+    """Map file extension to Content-Type for common video formats."""
+    mime_types = {
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".mov": "video/quicktime",
+        ".avi": "video/x-msvideo",
+        ".mkv": "video/x-matroska",
+    }
+    return mime_types.get(extension, "application/octet-stream")
+
+
+async def handle_file_request(
+    object_key: str, request: Request, is_head: bool = False
+) -> Response:
     """
-    Downloads or views a specific file (object) from a bucket.
+    Shared logic for GET and HEAD requests to retrieve or validate a file from a bucket.
+    Supports range requests for streaming.
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
-    try:
-        s3_response = minio_s3_client.get_object(Bucket=BUCKET_NAME, Key=object_key)
 
+    try:
+        # Get object metadata to determine file size and content type
+        head_response = minio_s3_client.head_object(Bucket=BUCKET_NAME, Key=object_key)
+        file_size = head_response["ContentLength"]
+        content_type = head_response.get(
+            "ContentType", get_content_type(get_file_extension(object_key))
+        )
         filename = object_key.split("/")[-1]
         synced = is_synced_via_metadata(
-            BUCKET_NAME, object_key, s3_response
-        )  # Reuse get_object metadata
+            bucket_name=BUCKET_NAME, object_key=object_key, head_response=head_response
+        )
+
         headers = {
             "Content-Disposition": f"attachment; filename={filename}",
             "X-Synced-To-AWS": str(synced).lower(),
+            "Accept-Ranges": "bytes",
         }
 
-        return StreamingResponse(
-            s3_response["Body"],
-            media_type=s3_response.get("ContentType", "application/octet-stream"),
-            headers=headers,
-        )
+        if is_head:
+            # HEAD request: return headers only
+            headers.update(
+                {
+                    "Content-Length": str(file_size),
+                    "Content-Type": content_type,
+                }
+            )
+            return Response(status_code=200, headers=headers)
+
+        # GET request: handle range or full file
+        range_header = request.headers.get("range")
+        if range_header:
+            range_str = range_header.replace("bytes=", "")
+            start, end = 0, file_size - 1
+            if "-" in range_str:
+                range_parts = range_str.split("-")
+                start = int(range_parts[0]) if range_parts[0] else 0
+                end = int(range_parts[1]) if range_parts[1] else file_size - 1
+
+            if start >= file_size or end >= file_size or start > end:
+                raise HTTPException(status_code=416, detail="Range Not Satisfiable")
+
+            range_spec = f"bytes={start}-{end}"
+            s3_response = minio_s3_client.get_object(
+                Bucket=BUCKET_NAME, Key=object_key, Range=range_spec
+            )
+            content_length = end - start + 1
+
+            headers.update(
+                {
+                    "Content-Length": str(content_length),
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Content-Type": content_type,
+                }
+            )
+
+            return StreamingResponse(
+                s3_response["Body"],
+                media_type=content_type,
+                headers=headers,
+                status_code=206,
+            )
+        else:
+            s3_response = minio_s3_client.get_object(Bucket=BUCKET_NAME, Key=object_key)
+            headers.update(
+                {
+                    "Content-Length": str(file_size),
+                    "Content-Type": content_type,
+                }
+            )
+
+            return StreamingResponse(
+                s3_response["Body"],
+                media_type=content_type,
+                headers=headers,
+                status_code=200,
+            )
+
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
         if error_code == "NoSuchKey":
@@ -662,6 +752,22 @@ async def get_file_from_bucket(object_key: str) -> StreamingResponse:
                 status_code=404, detail=f"Bucket '{BUCKET_NAME}' not found."
             )
         raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
+
+
+@router.get("/{object_key:path}")
+async def get_file_from_bucket(object_key: str, request: Request) -> StreamingResponse:
+    """
+    Downloads or streams a specific file from a bucket, supporting range requests for video streaming.
+    """
+    return await handle_file_request(object_key, request, is_head=False)
+
+
+@router.head("/{object_key:path}")
+async def head_file_from_bucket(object_key: str, request: Request) -> Response:
+    """
+    Retrieves metadata for a specific file from a bucket (HEAD request).
+    """
+    return await handle_file_request(object_key, request, is_head=True)
 
 
 @router.delete("/{object_key:path}", status_code=status.HTTP_200_OK)

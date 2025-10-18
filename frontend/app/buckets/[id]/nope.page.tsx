@@ -2,11 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { UploadDropzone } from "@/components/upload-dropzone";
+import { UploadDropzone } from "@/components/files-view/upload-dropzone";
 import { Input } from "@/components/ui/input";
 import { FileList, type FileItem } from "@/components/file-list";
-import { ShareDialog } from "@/components/share-dialog";
-import { Breadcrumbs } from "@/components/breadcrumbs";
+import { ShareDialog } from "@/components/shared-view/share-dialog";
+import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { UploadProgress } from "@/components/upload-progress";
 
 export default function BucketDetailPage() {
@@ -123,57 +123,56 @@ export default function BucketDetailPage() {
   }
 
   return (
-        <div className="p-4 md:p-6">
-        <header className="mb-6">
-          <Breadcrumbs
-            items={[
-              { label: "Home", href: "/" },
-              { label: "Buckets", href: "/" },
-              { label: bucketId },
-            ]}
-          />
-          <h1 className="mt-4 text-balance text-2xl font-semibold tracking-tight">
-            {bucketId}
-          </h1>
-          <div className="mt-4">
-            <label htmlFor="search" className="sr-only">
-              Search files
-            </label>
-            <Input
-              id="search"
-              placeholder="Search files and folders"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="max-w-md"
-            />
-          </div>
-        </header>
-
-        <section className="mb-6 grid gap-4" aria-label="Upload files">
-          <UploadDropzone onFiles={uploadFiles} />
-          {isUploading ? (
-            <UploadProgress clientProgress={clientPct} sseUrl={sseUrl} />
-          ) : null}
-        </section>
-
-        <section aria-label="File browser">
-          <FileList
-            items={filtered}
-            onShare={(item) => setShareFor(item)}
-            onDownload={() => {
-              // implement download in real app
-            }}
-            onDelete={(item) => {
-              setFiles((prev) => prev.filter((f) => f.id !== item.id));
-            }}
-          />
-        </section>
-        <ShareDialog
-          item={shareFor}
-          open={!!shareFor}
-          onOpenChange={(open) => !open && setShareFor(null)}
+    <div className="p-4 md:p-6">
+      <header className="mb-6">
+        <Breadcrumbs
+          items={[
+            { label: "Home", href: "/" },
+            { label: "Buckets", href: "/" },
+            { label: bucketId },
+          ]}
         />
+        <h1 className="mt-4 text-balance text-2xl font-semibold tracking-tight">
+          {bucketId}
+        </h1>
+        <div className="mt-4">
+          <label htmlFor="search" className="sr-only">
+            Search files
+          </label>
+          <Input
+            id="search"
+            placeholder="Search files and folders"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="max-w-md"
+          />
         </div>
+      </header>
 
+      <section className="mb-6 grid gap-4" aria-label="Upload files">
+        <UploadDropzone onFiles={uploadFiles} />
+        {isUploading ? (
+          <UploadProgress clientProgress={clientPct} sseUrl={sseUrl} />
+        ) : null}
+      </section>
+
+      <section aria-label="File browser">
+        <FileList
+          items={filtered}
+          onShare={(item) => setShareFor(item)}
+          onDownload={() => {
+            // implement download in real app
+          }}
+          onDelete={(item) => {
+            setFiles((prev) => prev.filter((f) => f.id !== item.id));
+          }}
+        />
+      </section>
+      <ShareDialog
+        item={shareFor}
+        open={!!shareFor}
+        onOpenChange={(open) => !open && setShareFor(null)}
+      />
+    </div>
   );
 }

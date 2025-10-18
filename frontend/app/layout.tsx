@@ -2,8 +2,8 @@ import type React from "react";
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import { Analytics } from "@vercel/analytics/next";
-import { AppLayout } from "@/components/app-layout";
-import { ThemeProvider } from "@/components/theme-provider";
+import { AppLayout } from "@/components/layout/app-layout";
+import { ThemeProvider } from "@/components/layout/theme-provider";
 import "./globals.css";
 
 import {

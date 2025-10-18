@@ -11,7 +11,6 @@ import {
   Clock,
   HardDrive,
   Link2,
-  CheckCircle2,
   Eye,
   Loader2,
   Calendar,
@@ -27,31 +26,22 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FilePreview } from "@/components/file-preview";
+import { FilePreview } from "@/components/files-view/file-preview";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { PUBLIC_FRONTEND_URL } from "@/config/api.config";
 import { downloadFile, getFileInfo, deleteFile } from "@/api/files.api";
 import {
   FileInfoErrorResponse,
   FileInfoResponse,
-  DeleteFileResponse,
   DeleteFileErrorResponse,
 } from "@/types/files.types";
 import { syncFile } from "@/api/sync.api";
-import {
-  createSharedLink,
-  listSharedLinks,
-  deleteSharedLink,
-} from "@/api/share.api";
-import {
-  CreateSharedLinkPayload,
-  SharedLink,
-  DeleteSharedLinkResultType,
-} from "@/types/share.types";
+import { createSharedLink, listSharedLinks } from "@/api/share.api";
+import { CreateSharedLinkPayload, SharedLink } from "@/types/share.types";
 import { formatFileSize } from "@/lib/helpers";
 
 interface FileDetails {
@@ -504,20 +494,21 @@ export default function FileDetailsPage() {
 
       {/* Preview Dialog */}
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
-        <DialogContent className="w-full max-w-full h-[95vh] max-h-[95vh] sm:max-w-4xl animate-in fade-in zoom-in-95 duration-300">
-          <DialogHeader>
-            <DialogTitle>Preview: {fileData.name}</DialogTitle>
-            <DialogDescription>
-              Preview of the selected file. Use the controls to navigate if
-              applicable.
+        <DialogContent className="flex flex-col w-full sm:w-[min(92vw,64rem)] max-w-4xl h-auto max-h-[85vh] sm:max-h-[80vh] p-0 m-0 bg-background rounded-lg overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+          <DialogHeader className="p-2 sm:p-4 border-b flex-shrink-0">
+            <DialogTitle className="text-sm sm:text-base leading-tight">
+              Preview
+            </DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+              {fileData.name}
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 overflow-auto p-4">
+          <div className="flex-1 overflow-auto">
             <FilePreview
               objectKey={objectKey}
               fileName={fileData.name}
               fileType={fileData.type}
-              fileSize={fileData.size}
+              className="h-full"
             />
           </div>
         </DialogContent>

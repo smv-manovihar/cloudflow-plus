@@ -12,9 +12,9 @@ import {
   PanelLeftCloseIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { BrandIcon, BrandWordmark } from "@/components/brand-wordmark";
+import { BrandIcon, BrandWordmark } from "@/components/layout/brand-wordmark";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ThemeToggle } from "@/components/layout/theme-toggle";
 import {
   DropdownMenu,
   DropdownMenuContent,

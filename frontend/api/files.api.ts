@@ -66,20 +66,31 @@ export const uploadFiles = async (
       formData.append("files", file);
     });
 
+    const tempResponse = new Response(formData);
+    const blob = await tempResponse.blob();
+    const contentLength = blob.size;
+    const contentType = tempResponse.headers.get('content-type') || 'multipart/form-data';
+
+    let lastProgress = 0;
+
     const { data } = await api.post("/files", formData, {
       headers: {
-        "Content-Type": "multipart/form-data",
+        "Content-Type": contentType,
+        "Content-Length": contentLength.toString(),
       },
       onUploadProgress: (progressEvent) => {
-        if (progressEvent.total) {
+        if (progressEvent.total && progressEvent.total === contentLength) {
           const percentCompleted = Math.round(
             (progressEvent.loaded * 100) / progressEvent.total
           );
-          onProgress?.(percentCompleted);
+          if (percentCompleted >= lastProgress) {
+            lastProgress = percentCompleted;
+            onProgress?.(percentCompleted);
+          }
         }
       },
     });
-
+    onProgress?.(100);
     return {
       success: true,
       message: data.message,
@@ -96,13 +107,10 @@ export const uploadFiles = async (
       };
     }>;
 
-    // Handle multi-status response (207)
     if (axiosError?.response?.status === 207) {
       const detail = axiosError.response.data.detail;
       if (typeof detail === "object" && detail !== null) {
         const errorMessage = detail.message || "Some files failed to upload";
-
-        
         return {
           success: false,
           error: errorMessage,

@@ -15,8 +15,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { UploadFilesErrorResponse, UploadFilesResponse } from "@/types/files.types";
-
+import {
+  UploadFilesErrorResponse,
+  UploadFilesResponse,
+} from "@/types/files.types";
 
 export function UploadDropzone({
   className,
@@ -38,6 +40,7 @@ export function UploadDropzone({
   const [drag, setDrag] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false); // Track upload state
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const effectivePrefix = folderToCreate
@@ -48,7 +51,9 @@ export function UploadDropzone({
 
   const handleConfirmUpload = useCallback(
     async (filesToUpload: File[]) => {
-      // Process files with effectivePrefix if it ends with "/"
+      if (isUploading) return;
+      setIsUploading(true);
+
       let processedFiles = filesToUpload;
       if (effectivePrefix?.endsWith("/")) {
         processedFiles = filesToUpload.map((file) => {
@@ -59,29 +64,37 @@ export function UploadDropzone({
 
       const totalFiles = processedFiles.length;
       const uploadToast = toast.loading(
-        `Starting upload... ${totalFiles} file(s) selected`
+        `Preparing to upload ${totalFiles} file(s)...`
       );
 
       try {
         const response = await uploadFiles(processedFiles, (progress) => {
-          toast.loading(`${totalFiles} file(s)... ${Math.round(progress)}%`, {
-            id: uploadToast,
-          });
+          const roundedProgress = Math.round(progress);
+          if (roundedProgress < 100) {
+            toast.loading(
+              `Uploading ${totalFiles} file(s)... ${roundedProgress}%`,
+              { id: uploadToast }
+            );
+          } else {
+            toast.loading(`Upload complete, processing on server...`, {
+              id: uploadToast,
+            });
+          }
         });
 
         if (response.success) {
-          toast.success(response.message || "Files uploaded successfully", {
-            id: uploadToast,
-          });
-          // If creating a folder, invoke callback after success
+          toast.success(
+            response.message || `Successfully uploaded ${totalFiles} file(s)`,
+            { id: uploadToast, duration: 5000 }
+          );
           if (folderToCreate && onFolderCreated) {
             onFolderCreated(folderToCreate);
           }
         } else {
-          toast.error(response.error || "Some files failed to upload", {
-            id: uploadToast,
-          });
-          // On failure with folder creation, cancel the process
+          toast.error(
+            response.error || `Failed to upload ${totalFiles} file(s)`,
+            { id: uploadToast, duration: 5000 }
+          );
           if (folderToCreate && onCreateCancelled) {
             onCreateCancelled();
           }
@@ -89,17 +102,22 @@ export function UploadDropzone({
 
         onFilesUploaded?.(response);
       } catch (error) {
-        toast.error("An error occurred during upload", {
-          id: uploadToast,
-        });
+        toast.error(
+          `Upload failed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+          { id: uploadToast, duration: 5000 }
+        );
         console.error("Upload error:", error);
-        // On error with folder creation, cancel the process
         if (folderToCreate && onCreateCancelled) {
           onCreateCancelled();
         }
+      } finally {
+        setIsUploading(false);
       }
     },
     [
+      isUploading,
       onFilesUploaded,
       effectivePrefix,
       folderToCreate,
@@ -110,7 +128,6 @@ export function UploadDropzone({
 
   const handleUpload = useCallback(
     async (files: File[]) => {
-      // Enforce at least one file for folder creation
       if (folderToCreate && files.length === 0) {
         toast.error("At least one file is required to create the folder.", {
           duration: 3000,
@@ -138,7 +155,6 @@ export function UploadDropzone({
   const cancelUpload = useCallback(() => {
     setIsOpen(false);
     setSelectedFiles([]);
-    // If folder creation was pending, cancel it
     if (folderToCreate && onCreateCancelled) {
       onCreateCancelled();
     }
@@ -159,7 +175,6 @@ export function UploadDropzone({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files ? Array.from(e.target.files) : [];
       if (files.length) handleUpload(files);
-      // Reset input value to allow re-selecting the same file
       e.target.value = "";
     },
     [handleUpload]
@@ -277,7 +292,7 @@ export function UploadDropzone({
             <Button
               type="button"
               onClick={confirmUpload}
-              disabled={selectedFiles.length === 0}
+              disabled={selectedFiles.length === 0 || isUploading}
             >
               Upload {selectedFiles.length > 0 && `(${selectedFiles.length})`}
             </Button>
