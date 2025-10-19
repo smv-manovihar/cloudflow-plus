@@ -267,7 +267,7 @@ export default function FileBrowser() {
     // setDeleteType("local");
     const toastId = toast.loading(`Deleting ${fileName}...`);
     try {
-      const result = await deleteFile(fileKey, false);
+      const result = await deleteFile(fileKey, true);
       if (result.success) {
         setCurrentPageData((prev) => prev.filter((f) => f.key !== fileKey));
         toast.success(`${fileName} deleted`, {

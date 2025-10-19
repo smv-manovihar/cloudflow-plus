@@ -240,15 +240,39 @@ export const getSharedFileInfo = async (linkId: string): Promise<GetFileInfoResu
 // Update Shared Link
 // ---------------------------
 
+
+
+// Update API function
 export const updateSharedLink = async (
   linkId: string,
   payload: UpdateSharedLinkPayload
 ): Promise<UpdateSharedLinkResultType> => {
   try {
-    const payloadToSend = {
-      ...payload,
-      expires_at: payload.expires_at ? payload.expires_at.toISOString() : undefined,
-    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const payloadToSend: any = {};
+
+    // Enabled field
+    if (payload.enabled !== undefined) {
+      payloadToSend.enabled = payload.enabled;
+    }
+
+    // Expiry with explicit flag
+    if (payload.remove_expiry === true) {
+      payloadToSend.remove_expiry = true;
+      // Don't send expires_at when removing
+    } else if (payload.expires_at !== undefined && payload.expires_at !== null) {
+      payloadToSend.expires_at = payload.expires_at.toISOString();
+      payloadToSend.remove_expiry = false;
+    }
+
+    // Password with explicit flag
+    if (payload.remove_password === true) {
+      payloadToSend.remove_password = true;
+      // Don't send password when removing
+    } else if (payload.password !== undefined && payload.password !== null) {
+      payloadToSend.password = payload.password;
+      payloadToSend.remove_password = false;
+    }
 
     const { data } = await api.put(`/share/${linkId}`, payloadToSend);
 
@@ -272,7 +296,6 @@ export const updateSharedLink = async (
     return handleApiError(error, "An unknown error occurred while updating the shared link.");
   }
 };
-
 // ---------------------------
 // Delete Shared Link
 // ---------------------------

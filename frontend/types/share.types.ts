@@ -32,8 +32,10 @@ export type SharedListItem = Omit<SharedLink, "qr_code" | "has_password">;
 
 export interface UpdateSharedLinkPayload {
   enabled?: boolean;
-  expires_at?: Date; // JavaScript Date object
-  password?: string;
+  expires_at?: Date | null;
+  remove_expiry?: boolean;
+  password?: string | null;
+  remove_password?: boolean;
 }
 
 export interface DownloadLinkResult {

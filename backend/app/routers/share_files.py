@@ -68,8 +68,21 @@ class SharedLinkListOut(BaseModel):
 
 class UpdateSharedLinkIn(BaseModel):
     enabled: Optional[bool] = None
-    expires_at: Optional[datetime] = None
-    password: Optional[str] = None
+
+    remove_expiry: bool = Field(
+        default=False, description="Set to true to remove expiration"
+    )
+    expires_at: Optional[datetime] = Field(
+        default=None,
+        description="New expiration date (ignored if remove_expiry is true)",
+    )
+
+    remove_password: bool = Field(
+        default=False, description="Set to true to remove password protection"
+    )
+    password: Optional[str] = Field(
+        default=None, description="New password (ignored if remove_password is true)"
+    )
 
 
 # ============================================================================
@@ -213,8 +226,12 @@ def get_download_link(
 
     # Check if link has expired
     now = datetime.now(timezone.utc)
-    if link.expires_at and now > link.expires_at:
-        raise HTTPException(status_code=410, detail="Link expired")
+    if link.expires_at:
+        # Ensure expires_at is timezone-aware
+        if link.expires_at.tzinfo is None:
+            link.expires_at = link.expires_at.replace(tzinfo=timezone.utc)
+        if now > link.expires_at:
+            raise HTTPException(status_code=410, detail="Link expired")
 
     # Verify password if required
     if link.password:
@@ -383,8 +400,12 @@ def get_file_info(link_id: str, db: Session = Depends(get_db)):
 
     # Check if link has expired
     now = datetime.now(timezone.utc)
-    if link.expires_at and now > link.expires_at:
-        raise HTTPException(status_code=410, detail="Link expired")
+    if link.expires_at:
+        # Ensure expires_at is timezone-aware
+        if link.expires_at.tzinfo is None:
+            link.expires_at = link.expires_at.replace(tzinfo=timezone.utc)
+        if now > link.expires_at:
+            raise HTTPException(status_code=410, detail="Link expired")
 
     # Return file information
     info = {
@@ -404,7 +425,8 @@ def update_shared_link(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Update an existing shared link."""
+    """Update an existing shared link with explicit boolean flags."""
+
     # Validate UUID
     try:
         uid = uuid.UUID(link_id)
@@ -413,46 +435,78 @@ def update_shared_link(
 
     # Fetch link from database
     link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
-    if not link:
+    if link is None:
         raise HTTPException(status_code=404, detail="Shared link not found")
 
     # Check ownership
     if link.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
 
-    # Update enabled status
-    if payload.enabled is not None:
-        link.enabled = bool(payload.enabled)
+    has_changes = False
 
-    # Update expiration time
-    if payload.expires_at is not None:
+    # Update enabled status - explicit check
+    if payload.enabled is not None:
+        link.enabled = payload.enabled
+        has_changes = True
+
+    # Update expiration time - with explicit remove flag
+    should_remove_expiry = payload.remove_expiry is True
+
+    if should_remove_expiry is True:
+        # Explicitly removing expiry
+        link.expires_at = None
+        has_changes = True
+    elif payload.expires_at is not None:
+        # Setting new expiry date
         expires_at = payload.expires_at
+
+        # Ensure timezone awareness
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if expires_at < datetime.now(timezone.utc):
+
+        # Validate future date
+        is_future_date = expires_at > datetime.now(timezone.utc)
+        if is_future_date is False:
             raise HTTPException(
                 status_code=400, detail="Expiration time must be in the future"
             )
+
         link.expires_at = expires_at
+        has_changes = True
 
-    # Update password
-    if payload.password is not None:
-        if payload.password == "":
-            # Empty string removes password
-            link.password = None
-        else:
-            # Validate and hash new password
-            if len(payload.password) < 4:
-                raise HTTPException(
-                    status_code=400, detail="Password must be at least 4 characters"
-                )
-            link.password = Hash.encrypt(payload.password)
+    # Update password - with explicit remove flag
+    should_remove_password = payload.remove_password is True
 
-    link.updated_at = datetime.now(timezone.utc)
-    # Save changes
-    db.add(link)
-    db.commit()
-    db.refresh(link)
+    if should_remove_password is True:
+        # Explicitly removing password protection
+        link.password = None
+        has_changes = True
+    elif payload.password is not None:
+        # Setting new password
+        password_value = payload.password.strip()
+        is_empty = len(password_value) == 0
+
+        if is_empty is True:
+            raise HTTPException(
+                status_code=400,
+                detail="Password cannot be empty. Use remove_password flag to remove protection.",
+            )
+
+        is_long_enough = len(password_value) >= 4
+        if is_long_enough is False:
+            raise HTTPException(
+                status_code=400, detail="Password must be at least 4 characters"
+            )
+
+        link.password = Hash.encrypt(password_value)
+        has_changes = True
+
+    # Update timestamp if changes were made
+    if has_changes is True:
+        link.updated_at = datetime.now(timezone.utc)
+        db.add(link)
+        db.commit()
+        db.refresh(link)
 
     return SharedLinkOut(
         id=uuid.UUID(link.id),
@@ -464,7 +518,7 @@ def update_shared_link(
         updated_at=link.updated_at,
         created_at=link.created_at,
         enabled=link.enabled,
-        has_password=bool(link.password),
+        has_password=link.password is not None and link.password != "",
         qr_code=link.qr_code,
         user_id=link.user_id,
     )

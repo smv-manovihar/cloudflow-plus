@@ -126,7 +126,6 @@ export default function PublicDownloadPage({
   const handlePasswordSubmit = async () => {
     if (!password.trim()) return;
 
-    console.log("Submitting password...");
     setIsSubmittingPassword(true);
 
     try {
@@ -190,16 +189,6 @@ export default function PublicDownloadPage({
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkId]);
-
-  // Debug effect to track state changes
-  useEffect(() => {
-    console.log(
-      "State update - showPasswordForm:",
-      showPasswordForm,
-      "error:",
-      error
-    );
-  }, [showPasswordForm, error]);
 
   const getErrorIcon = (status: number) => {
     switch (status) {
