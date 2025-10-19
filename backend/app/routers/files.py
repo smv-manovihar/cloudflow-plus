@@ -14,15 +14,12 @@ from sqlalchemy.orm import Session
 from fastapi.routing import APIRouter
 from typing import Optional, List, Dict, Any
 import os
+from urllib.parse import unquote
 
 from app.services.s3_service import minio_s3_client, aws_s3_client
 from app.database import get_db
 from app.models import SharedLink
 from app.core.config import BUCKET_NAME
-
-import logging
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/files", tags=["Files"])
 
@@ -209,7 +206,8 @@ async def list_files_in_bucket(
 
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
-        if error_code == "NoSuchBucket":
+        http_status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if http_status == 404 or error_code in ["NoSuchBucket", "NoSuchKey", "404"]:
             raise HTTPException(
                 status_code=404, detail=f"Bucket '{BUCKET_NAME}' not found."
             )
@@ -217,7 +215,7 @@ async def list_files_in_bucket(
             raise HTTPException(
                 status_code=400, detail="Invalid cursor token provided."
             )
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
 
 
 @router.get("/search")
@@ -457,7 +455,7 @@ async def search_files_in_bucket(
 
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
-        if error_code == "NoSuchBucket":
+        if error_code in ["NoSuchBucket", "NoSuchKey", "404"]:
             raise HTTPException(
                 status_code=404, detail=f"Bucket '{BUCKET_NAME}' not found."
             )
@@ -511,9 +509,6 @@ async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResp
                 confirmed_synced = user_meta.get("synced") == "true"
                 last_synced = user_meta.get("last_synced")
             except ClientError as meta_err:
-                logger.warning(
-                    f"Failed to head uploaded file {file.filename}: {meta_err}"
-                )
                 size_bytes = 0
                 last_modified = datetime.now(timezone.utc).isoformat()
                 confirmed_synced = False
@@ -545,7 +540,6 @@ async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResp
                 }
             )
         except Exception as e:
-            logger.error(f"Unexpected upload error for {file.filename}: {e}")
             errors.append(
                 {
                     "filename": file.filename,
@@ -585,6 +579,9 @@ async def get_file_info(
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
 
+    # Decode object_key if URL-encoded
+    object_key = unquote(object_key)
+
     try:
         head = minio_s3_client.head_object(Bucket=BUCKET_NAME, Key=object_key)
         synced = is_synced_via_metadata(BUCKET_NAME, object_key, head)
@@ -601,9 +598,6 @@ async def get_file_info(
             )
             is_shared = shared_link_id is not None
         except Exception as db_err:
-            logger.warning(
-                f"DB error checking shared status for {object_key}: {db_err}"
-            )
             is_shared = False
 
         # Serialize LastModified to ISO string for JSON compatibility
@@ -630,7 +624,7 @@ async def get_file_info(
         )
     except ClientError as exc:
         error_code = exc.response["Error"]["Code"]
-        if error_code in ["NoSuchKey", "NoSuchBucket"]:
+        if error_code in ["NoSuchKey", "NoSuchBucket", "404"]:
             raise HTTPException(
                 status_code=404,
                 detail=f"Object '{object_key}' or bucket '{BUCKET_NAME}' not found",
@@ -664,6 +658,9 @@ async def handle_file_request(
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
+
+    # Decode object_key if URL-encoded
+    object_key = unquote(object_key)
 
     try:
         # Get object metadata to determine file size and content type
@@ -744,7 +741,7 @@ async def handle_file_request(
 
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
-        if error_code == "NoSuchKey":
+        if error_code in ["NoSuchKey", "404"]:
             raise HTTPException(
                 status_code=404,
                 detail=f"File '{object_key}' not found in bucket '{BUCKET_NAME}'.",
@@ -779,6 +776,10 @@ async def delete_file_from_bucket(object_key: str, sync: bool) -> JSONResponse:
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
+
+    # Decode object_key if URL-encoded
+    object_key = unquote(object_key)
+
     try:
         synced = is_synced_via_metadata(BUCKET_NAME, object_key)
         minio_s3_client.delete_object(Bucket=BUCKET_NAME, Key=object_key)

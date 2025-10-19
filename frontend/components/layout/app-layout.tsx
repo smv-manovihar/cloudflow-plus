@@ -8,14 +8,11 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Button } from "@/components/ui/button";
 import {
   ChevronRight,
-  Menu,
-  X,
-  ChevronLeft,
-  ChevronRight as ChevronRightIcon,
   PanelLeftOpenIcon,
   PanelLeftCloseIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/auth.context";
 
 const publicRoutes = ["/login", "/signup"];
 
@@ -23,22 +20,27 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [isExpanded, setIsExpanded] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-    const auth = localStorage.getItem("auth");
-    const isAuth = auth ? JSON.parse(auth).authenticated : false;
-    setIsAuthenticated(isAuth);
-
-    if (!isAuth && !publicRoutes.includes(pathname)) {
+    if (authLoading) return;
+    const isPublicSharedDownload =
+      pathname.startsWith("/shared/") && pathname.endsWith("/download");
+    if (
+      !isAuthenticated &&
+      !publicRoutes.includes(pathname) &&
+      isPublicSharedDownload
+    ) {
       router.push("/login");
     }
+  }, [, pathname, router]);
 
+  useEffect(() => {
+    setMounted(true);
     // Load sidebar state from localStorage
     const saved = localStorage.getItem("sidebar-expanded");
     if (saved !== null) {
@@ -78,8 +80,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   if (!mounted) return null;
 
   const isPublicRoute = publicRoutes.includes(pathname);
+  const isPublicSharedDownload =
+    pathname.startsWith("/shared/") && pathname.endsWith("/download");
 
-  if (isPublicRoute) {
+  if (isPublicRoute || isPublicSharedDownload) {
     return <>{children}</>;
   }
 
@@ -108,8 +112,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
 
     // Add page-specific breadcrumbs
-    if (pathname === "/shared") {
-      breadcrumbs.push({ label: "Shared Links", href: "/shared" });
+    if (pathname.startsWith("/shared")) {
+      breadcrumbs.push({ label: "Shared Files", href: "/shared" });
+      if (pathname !== "/shared") {
+        breadcrumbs.push({ label: "Link Details", href: pathname });
+      }
     } else if (pathname === "/settings") {
       breadcrumbs.push({ label: "Settings", href: "/settings" });
     }

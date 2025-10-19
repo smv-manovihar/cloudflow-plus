@@ -46,14 +46,17 @@ const refreshToken = async (): Promise<string | null> => {
   try {
     // Mark that we had a refresh token when we attempt to use it
     hadRefreshToken = true;
-    
+
     const response = await axios.post(
       `${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`,
       {},
       { withCredentials: true }
     );
-    // Handle different response formats - some APIs return the token directly, others in a nested object
-    return response.data?.access_token || response.data?.token || response.data || null;
+    // Since the backend sets the token in cookies, check for successful response status
+    if (response.status === 200) {
+      return "refreshed"; // Return a non-null value to indicate success
+    }
+    return null;
   } catch {
     // Token refresh failed - show session expired toast if we had a refresh token
     if (hadRefreshToken) {
@@ -74,8 +77,8 @@ api.interceptors.response.use(
 
     // Check if the error is 401 and we haven't already tried to refresh
     if (error.response?.status === 401 && !originalRequest._retry) {
-      // Skip token refresh for auth endpoints to avoid infinite loops
-      if (originalRequest.url?.includes('/auth/')) {
+      // Skip token refresh for refresh endpoint and public share routes to avoid infinite loops
+      if (originalRequest.url?.includes('/auth/refresh') ||( originalRequest.url?.startsWith('/share/') && originalRequest.url?.endsWith('/download'))) {
         return Promise.reject(error);
       }
 

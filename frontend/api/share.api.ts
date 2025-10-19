@@ -19,6 +19,7 @@ import {
 } from "@/types/share.types";
 
 import { handleApiError } from "@/utils/helpers";
+import { AxiosError } from "axios";
 
 // ---------------------------
 // Create Shared Link
@@ -56,9 +57,6 @@ export const createSharedLink = async (
   }
 };
 
-// ---------------------------
-// Get Download Link
-// ---------------------------
 
 export const getDownloadLink = async (
   linkId: string,
@@ -74,10 +72,46 @@ export const getDownloadLink = async (
     };
 
     return { success: true, result };
-  } catch (error) {
-    return handleApiError(error, "An unknown error occurred while getting the download link.");
+  } catch (error: unknown) {
+    const axiosError = error as AxiosError<{ detail?: string }>;
+    const status = axiosError.response?.status;
+    let errorMsg = "An unknown error occurred while getting the download link.";
+    const detail = axiosError.response?.data?.detail;
+
+    switch (status) {
+      case 400:
+        errorMsg = "Invalid link ID";
+        break;
+      case 401:
+        errorMsg = detail?.toLowerCase().includes("required") ? "Password required" : "Invalid password";
+        break;
+      case 403:
+        errorMsg = "This link has been disabled by the owner.";
+        break;
+      case 404:
+        errorMsg = "Shared link not found";
+        break;
+      case 410:
+        errorMsg = "This link has expired.";
+        break;
+      default:
+        if (!status) {
+          const handled = handleApiError(error, errorMsg);
+          errorMsg = handled.error || errorMsg;
+        }
+    }
+
+    return { 
+      success: false, 
+      error: { 
+        status: status ?? 500,
+        message: errorMsg,
+        ...(detail && { detail })
+      } 
+    };
   }
 };
+
 
 // ---------------------------
 // Get QR Code
@@ -180,14 +214,28 @@ export const getSharedFileInfo = async (linkId: string): Promise<GetFileInfoResu
       name: data.name,
       bucket: data.bucket,
       size_bytes: data.size_bytes,
+      has_password: data.has_password || false,
     };
 
     return { success: true, result };
   } catch (error) {
-    return handleApiError(error, "An unknown error occurred while getting file info.");
+    const status = (error as AxiosError)?.response?.status;
+    let errorMsg = "An unknown error occurred while getting file info.";
+
+    switch (status) {
+      case 400:
+        errorMsg = "Invalid link ID";
+        break;
+      case 404:
+        errorMsg = "Shared link not found";
+        break;
+      default:
+        errorMsg = handleApiError(error, errorMsg).error || errorMsg;
+    }
+
+    return { success: false, error: { status: status ?? 500, message: errorMsg } };
   }
 };
-
 // ---------------------------
 // Update Shared Link
 // ---------------------------

@@ -11,7 +11,7 @@ export interface SharedLink {
   name: string;
   bucket: string;
   object_key: string;
-  size_bytes?: number;
+  size_bytes: number;
   expires_at?: string; // ISO datetime
   updated_at: string; // ISO datetime
   created_at: string; // ISO datetime
@@ -44,7 +44,8 @@ export interface DownloadLinkResult {
 export interface FileInfo {
   name: string;
   bucket: string;
-  size_bytes?: number;
+  size_bytes: number;
+  has_password: boolean;
 }
 
 // Result types for async operations
@@ -61,7 +62,7 @@ export type GetDownloadLinkResultType = {
   result: DownloadLinkResult;
 } | {
   success: false;
-  error: string;
+  error: { status: number; message: string; detail?: string };
 };
 
 export type GetQrCodeResultType = {
@@ -93,7 +94,7 @@ export type GetFileInfoResultType = {
   result: FileInfo;
 } | {
   success: false;
-  error: string;
+  error: { status: number; message: string };
 };
 
 export type UpdateSharedLinkResultType = {

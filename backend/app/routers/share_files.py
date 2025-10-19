@@ -391,6 +391,7 @@ def get_file_info(link_id: str, db: Session = Depends(get_db)):
         "name": link.name,
         "bucket": link.bucket,
         "size_bytes": link.size_bytes,
+        "has_password": bool(link.password),
     }
 
     return info

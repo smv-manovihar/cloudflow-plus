@@ -180,6 +180,7 @@ export const getFileInfo = async (
       synced: Boolean(data.synced),
       last_synced: data.last_synced ?? null,
       is_shared: Boolean(data.is_shared),
+      shared_link_id: data.shared_link_id ?? null,
     };
   } catch (error) {
     return handleApiError(error, "An unknown error occurred while fetching file info.");
