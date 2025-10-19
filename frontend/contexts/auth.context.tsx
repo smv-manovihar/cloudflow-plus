@@ -12,13 +12,12 @@ import {
   login as loginApi,
   logout as logoutApi,
 } from "@/api/auth.api";
-import { LoginData, User } from "@/types/auth.type";
+import { LoginData, User } from "@/types/auth.types";
+import { tokenRefreshEvents } from "@/utils/token-refresh-events";
 
 interface AuthContextType {
   user: User | null;
-  setUser: React.Dispatch<React.SetStateAction<User | null>>;
   isAuthenticated: boolean;
-  setIsAuthenticated: React.Dispatch<React.SetStateAction<boolean>>;
   isLoading: boolean;
   login: (data: LoginData) => Promise<User>;
   logout: () => Promise<void>;
@@ -26,9 +25,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  setUser: () => {},
   isAuthenticated: false,
-  setIsAuthenticated: () => {},
   isLoading: true,
   login: async () => {
     throw new Error("AuthContext not initialized");
@@ -43,23 +40,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Function to refresh user data
+  const refreshUserData = async () => {
+    try {
+      const response = await verifyUser();
+
+      if (response.success && response.data) {
+        setUser(response.data);
+        setIsAuthenticated(true);
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
+      }
+    } catch {
+      // Error refreshing user data - user will be logged out
+      setUser(null);
+      setIsAuthenticated(false);
+    }
+  };
+
   useEffect(() => {
     const checkUser = async () => {
       try {
         setIsLoading(true);
-        const response = await verifyUser();
-
-        if (response.success && response.data) {
-          setUser(response.data);
-          setIsAuthenticated(true);
-        } else {
-          setUser(null);
-          setIsAuthenticated(false);
-        }
-      } catch (error) {
-        console.error("Error verifying user:", error);
-        setUser(null);
-        setIsAuthenticated(false);
+        await refreshUserData();
       } finally {
         setIsLoading(false);
       }
@@ -68,20 +72,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     checkUser();
   }, []);
 
+  // Listen for token refresh events
+  useEffect(() => {
+    const unsubscribe = tokenRefreshEvents.subscribe(() => {
+      // When token is refreshed, re-fetch user data
+      refreshUserData();
+    });
+
+    return unsubscribe;
+  }, []);
+
   const login = async (data: LoginData): Promise<User> => {
     try {
       setIsLoading(true);
-      const response = await loginApi(data);
+      const loginResponse = await loginApi(data);
 
-      if (response.success && response.data) {
-        setUser(response.data);
+      if (!loginResponse.success) {
+        throw new Error(loginResponse.error || "Login failed");
+      }
+
+      if (loginResponse.success && loginResponse.data) {
+        setUser(loginResponse.data);
         setIsAuthenticated(true);
-        return response.data;
+        return loginResponse.data;
       } else {
-        throw new Error(response.message || "Login failed");
+        throw new Error(
+          loginResponse.error || "Failed to fetch user after login"
+        );
       }
     } catch (error) {
-      console.error("Login error:", error);
       setUser(null);
       setIsAuthenticated(false);
       throw error;
@@ -96,13 +115,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const response = await logoutApi();
 
       if (!response.success) {
-        throw new Error(response.message || "Logout failed");
+        throw new Error(response.error || "Logout failed");
       }
 
       setUser(null);
       setIsAuthenticated(false);
     } catch (error) {
-      console.error("Logout error:", error);
       // Still clear local state even if API call fails
       setUser(null);
       setIsAuthenticated(false);
@@ -114,9 +132,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const value: AuthContextType = {
     user,
-    setUser,
     isAuthenticated,
-    setIsAuthenticated,
     isLoading,
     login,
     logout,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Eye, EyeOff, Trash2, SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,85 +18,92 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-
-interface SharedLink {
-  id: string;
-  fileName: string;
-  fileSize: number;
-  link: string;
-  status: "active" | "expired";
-  expiresAt: string;
-  createdAt: string;
-  downloads: number;
-}
+import {
+  listSharedLinks,
+  deleteSharedLink,
+  updateSharedLink,
+} from "@/api/share.api";
+import { SharedLink } from "@/types/share.types";
 
 export function SharedLinks() {
   const router = useRouter();
-
   const [searchQuery, setSearchQuery] = useState("");
   const [showExpired, setShowExpired] = useState(false);
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   const [linkToRevoke, setLinkToRevoke] = useState<SharedLink | null>(null);
-  const [links, setLinks] = useState<SharedLink[]>([
-    {
-      id: "1",
-      fileName: "presentation.pdf",
-      fileSize: 2.5,
-      link: "https://cloudflow.app/shared/abc123",
-      status: "active",
-      expiresAt: "2024-02-15",
-      createdAt: "2024-01-15",
-      downloads: 5,
-    },
-    {
-      id: "2",
-      fileName: "budget.xlsx",
-      fileSize: 1.2,
-      link: "https://cloudflow.app/shared/def456",
-      status: "active",
-      expiresAt: "2024-02-20",
-      createdAt: "2024-01-10",
-      downloads: 12,
-    },
-    {
-      id: "3",
-      fileName: "old-report.docx",
-      fileSize: 0.8,
-      link: "https://cloudflow.app/shared/ghi789",
-      status: "expired",
-      expiresAt: "2024-01-05",
-      createdAt: "2023-12-15",
-      downloads: 3,
-    },
-  ]);
+  const [links, setLinks] = useState<SharedLink[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const pageSize = 20;
 
-  const filteredLinks = links.filter((link) => {
-    const matchesSearch = link.fileName
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    const matchesExpired = showExpired || link.status === "active";
-    return matchesSearch && matchesExpired;
-  });
+  const fetchLinks = async () => {
+    setIsLoading(true);
+    try {
+      const response = await listSharedLinks(
+        page,
+        pageSize,
+        undefined,
+        showExpired,
+        searchQuery
+      );
+      if (response.success) {
+        setLinks(response.result.items);
+        setTotalPages(Math.ceil(response.result.total / pageSize));
+      } else {
+        toast.error(response.error || "Failed to fetch shared links");
+      }
+    } catch (error) {
+      toast.error("An error occurred while fetching shared links");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  const handleCopyLink = (link: string) => {
-    navigator.clipboard.writeText(link);
+  useEffect(() => {
+    fetchLinks();
+  }, [page, showExpired, searchQuery]);
+
+  const handleCopyLink = (linkId: string) => {
+    const linkUrl = `${window.location.origin}/shared/${linkId}/download`;
+    navigator.clipboard.writeText(linkUrl);
     toast.success("Link copied to clipboard", { duration: 2000 });
   };
 
-  const handleToggleStatus = (id: string) => {
-    setLinks((prev) =>
-      prev.map((link) =>
-        link.id === id
-          ? { ...link, status: link.status === "active" ? "expired" : "active" }
-          : link
-      )
-    );
-    toast.success("Share status updated", { duration: 2000 });
+  const handleToggleStatus = async (link: SharedLink) => {
+    try {
+      const response = await updateSharedLink(link.id, {
+        enabled: !link.enabled,
+      });
+      if (response.success) {
+        setLinks((prev) =>
+          prev.map((l) =>
+            l.id === link.id ? { ...l, enabled: response.result.enabled } : l
+          )
+        );
+        toast.success(`Share link ${link.enabled ? "disabled" : "enabled"}`, {
+          duration: 2000,
+        });
+      } else {
+        toast.error(response.error || "Failed to update share status");
+      }
+    } catch (error) {
+      toast.error("An error occurred while updating share status");
+    }
   };
 
-  const handleRevoke = (id: string) => {
-    setLinks((prev) => prev.filter((link) => link.id !== id));
-    toast.success("Share link revoked", { duration: 2000 });
+  const handleRevoke = async (linkId: string) => {
+    try {
+      const response = await deleteSharedLink(linkId);
+      if (response.success) {
+        setLinks((prev) => prev.filter((link) => link.id !== linkId));
+        toast.success("Share link revoked", { duration: 2000 });
+      } else {
+        toast.error(response.error || "Failed to revoke share link");
+      }
+    } catch (error) {
+      toast.error("An error occurred while revoking share link");
+    }
   };
 
   const confirmRevoke = () => {
@@ -105,6 +112,12 @@ export function SharedLinks() {
       setRevokeDialogOpen(false);
       setLinkToRevoke(null);
     }
+  };
+
+  const formatFileSize = (bytes?: number): string => {
+    if (!bytes) return "Unknown";
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(2)} MB`;
   };
 
   return (
@@ -117,7 +130,6 @@ export function SharedLinks() {
             onChange={(e) => setSearchQuery(e.target.value)}
             className="flex-1 transition-all focus:ring-2 focus:ring-primary/50"
           />
-
           <Button
             variant={showExpired ? "default" : "outline"}
             onClick={() => setShowExpired(!showExpired)}
@@ -126,11 +138,33 @@ export function SharedLinks() {
             {showExpired ? "Hide Expired" : "Show Expired"}
           </Button>
         </div>
+        <div className="flex justify-between items-center">
+          <Button
+            variant="outline"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Page {page} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next
+          </Button>
+        </div>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-auto">
-        {filteredLinks.length === 0 ? (
+        {isLoading ? (
+          <div className="flex items-center justify-center h-64 text-center animate-in fade-in duration-500">
+            <p className="text-sm font-medium text-foreground">Loading...</p>
+          </div>
+        ) : links.length === 0 ? (
           <div className="flex items-center justify-center h-64 text-center animate-in fade-in duration-500">
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">
@@ -143,12 +177,12 @@ export function SharedLinks() {
           </div>
         ) : (
           <div className="p-4 md:p-6 space-y-3">
-            {filteredLinks.map((link, index) => (
+            {links.map((link, index) => (
               <Card
                 key={link.id}
                 className={cn(
                   "p-4 hover:shadow-md transition-all animate-in fade-in slide-in-from-left-2 duration-300",
-                  link.status === "expired" && "opacity-60"
+                  !link.enabled && "opacity-60"
                 )}
                 style={{ animationDelay: `${index * 50}ms` }}
               >
@@ -156,21 +190,26 @@ export function SharedLinks() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
                       <p className="text-sm font-medium text-foreground truncate">
-                        {link.fileName}
+                        {link.name}
                       </p>
                       <span
                         className={cn(
                           "text-xs px-2 py-1 rounded-full font-medium animate-in fade-in duration-300",
-                          link.status === "active"
+                          link.enabled
                             ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                             : "bg-muted text-muted-foreground"
                         )}
                       >
-                        {link.status === "active" ? "Active" : "Expired"}
+                        {link.enabled ? "Active" : "Disabled"}
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {link.fileSize} MB • Expires at {link.expiresAt}
+                      {formatFileSize(link.size_bytes)} •{" "}
+                      {link.expires_at
+                        ? `Expires at ${new Date(
+                            link.expires_at
+                          ).toLocaleDateString()}`
+                        : "No expiration"}
                     </p>
                   </div>
 
@@ -178,7 +217,7 @@ export function SharedLinks() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleCopyLink(link.link)}
+                      onClick={() => handleCopyLink(link.id)}
                       className="flex-1 md:flex-none transition-all hover:scale-105"
                     >
                       <Copy className="h-4 w-4 md:mr-2" />
@@ -198,18 +237,18 @@ export function SharedLinks() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleToggleStatus(link.id)}
+                      onClick={() => handleToggleStatus(link)}
                       className="flex-1 md:flex-none transition-all hover:scale-105"
                     >
-                      {link.status === "active" ? (
+                      {link.enabled ? (
                         <>
                           <Eye className="h-4 w-4 md:mr-2" />
-                          <span className="hidden md:inline">Active</span>
+                          <span className="hidden md:inline">Disable</span>
                         </>
                       ) : (
                         <>
                           <EyeOff className="h-4 w-4 md:mr-2" />
-                          <span className="hidden md:inline">Inactive</span>
+                          <span className="hidden md:inline">Enable</span>
                         </>
                       )}
                     </Button>
@@ -240,7 +279,7 @@ export function SharedLinks() {
             <AlertDialogTitle>Revoke Share Link</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to revoke the share link for &ldquo;
-              {linkToRevoke?.fileName}&rdquo;? This action cannot be undone.
+              {linkToRevoke?.name}&rdquo;? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

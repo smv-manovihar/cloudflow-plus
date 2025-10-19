@@ -1,9 +1,21 @@
 import { api } from "@/config/api.config";
-import { DeleteFileErrorResponse, DeleteFileResponse, FileInfoErrorResponse, FileInfoResponse, ListFilesErrorResponse, ListFilesResponse, PaginationInfo, S3File, UploadErrorResult, UploadFilesErrorResponse, UploadFilesResponse, UploadResult } from "@/types/files.types";
-import { AxiosError } from "axios";
+import {
+  DeleteFileErrorResponse,
+  DeleteFileResponse,
+  FileInfoErrorResponse,
+  FileInfoResponse,
+  ListFilesErrorResponse,
+  ListFilesResponse,
+  PaginationInfo,
+  S3File,
+  UploadFilesErrorResponse,
+  UploadFilesResponse,
+} from "@/types/files.types";
+import { handleApiError } from "@/utils/helpers";
 
-
-
+// ---------------------------
+// List Files
+// ---------------------------
 export const listFiles = async (
   prefix?: string,
   cursor?: string | null,
@@ -18,234 +30,184 @@ export const listFiles = async (
       },
     });
 
-    const files: S3File[] = Array.isArray(data.files) ? data.files : [];
+    // Defensive: ensure valid shape
+    const files: S3File[] = Array.isArray(data?.files) ? data.files : [];
 
     const pagination: PaginationInfo = {
-      count: data.pagination?.count ?? files.length,
-      page_size: data.pagination?.page_size ?? pageSize,
-      has_more: Boolean(data.pagination?.has_more),
-      next_cursor: data.pagination?.next_cursor ?? null,
-      current_cursor: data.pagination?.current_cursor ?? cursor ?? null,
+      count: data?.pagination?.count ?? files.length,
+      page_size: data?.pagination?.page_size ?? pageSize,
+      has_more: Boolean(data?.pagination?.has_more),
+      next_cursor: data?.pagination?.next_cursor ?? null,
+      current_cursor: data?.pagination?.current_cursor ?? cursor ?? null,
     };
 
     return {
       success: true,
       files,
       pagination,
-      bucket: data.bucket ?? null,
-      prefix: data.prefix,
+      bucket: data?.bucket ?? null,
+      prefix: data?.prefix ?? "",
     };
   } catch (error) {
-    console.error("Error listing files:", error);
-    const axiosError = error as AxiosError<{ detail?: string }>;
-    const errorMessage =
-      axiosError?.response?.data?.detail ||
-      axiosError?.message ||
-      "An unknown error occurred while fetching files.";
-
     return {
-      success: false,
+      ...handleApiError(error, "An unknown error occurred while fetching files."),
       files: [],
       pagination: null,
       bucket: null,
-      error: errorMessage,
     };
   }
 };
 
-
-
+// ---------------------------
+// Upload Files
+// ---------------------------
 export const uploadFiles = async (
   files: File[],
   onProgress?: (progress: number) => void
 ): Promise<UploadFilesResponse | UploadFilesErrorResponse> => {
   try {
-    const formData = new FormData();
-    
-    files.forEach((file) => {
-      formData.append("files", file);
-    });
+    if (!files || files.length === 0) {
+      return {
+        success: false,
+        error: "No files selected for upload.",
+        successful_uploads: [],
+        failed_uploads: [],
+      };
+    }
 
-    const tempResponse = new Response(formData);
-    const blob = await tempResponse.blob();
-    const contentLength = blob.size;
-    const contentType = tempResponse.headers.get('content-type') || 'multipart/form-data';
+    const formData = new FormData();
+    files.forEach((file) => formData.append("files", file));
 
     let lastProgress = 0;
 
     const { data } = await api.post("/files", formData, {
-      headers: {
-        "Content-Type": contentType,
-        "Content-Length": contentLength.toString(),
-      },
       onUploadProgress: (progressEvent) => {
-        if (progressEvent.total && progressEvent.total === contentLength) {
-          const percentCompleted = Math.round(
-            (progressEvent.loaded * 100) / progressEvent.total
-          );
-          if (percentCompleted >= lastProgress) {
-            lastProgress = percentCompleted;
-            onProgress?.(percentCompleted);
+        if (progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          if (percent > lastProgress) {
+            lastProgress = percent;
+            onProgress?.(percent);
           }
         }
       },
     });
+
     onProgress?.(100);
+
     return {
       success: true,
-      message: data.message,
-      bucket: data.bucket,
-      uploads: data.uploads,
+      message: data?.message ?? "Files uploaded successfully.",
+      bucket: data?.bucket ?? null,
+      uploads: Array.isArray(data?.uploads) ? data.uploads : [],
     };
   } catch (error) {
-    console.error("Error uploading files:", error);
-    const axiosError = error as AxiosError<{
-      detail?: string | {
-        message: string;
-        successful_uploads?: UploadResult[];
-        failed_uploads?: UploadErrorResult[];
-      };
-    }>;
-
+    const axiosError = error as any;
+    // Partial success case (multi-status)
     if (axiosError?.response?.status === 207) {
-      const detail = axiosError.response.data.detail;
-      if (typeof detail === "object" && detail !== null) {
-        const errorMessage = detail.message || "Some files failed to upload";
+      const detail = axiosError.response.data?.detail;
+      if (typeof detail === "object") {
         return {
           success: false,
-          error: errorMessage,
-          successful_uploads: detail.successful_uploads || [],
-          failed_uploads: detail.failed_uploads || [],
+          error: detail?.message || "Some files failed to upload.",
+          successful_uploads: detail?.successful_uploads || [],
+          failed_uploads: detail?.failed_uploads || [],
         };
       }
     }
 
-    const errorMessage =
-      typeof axiosError?.response?.data?.detail === "string"
-        ? axiosError.response.data.detail
-        : axiosError?.message ||
-          "An unknown error occurred while uploading files.";
-
     return {
-      success: false,
-      error: errorMessage,
+      ...handleApiError(error, "An unknown error occurred while uploading files."),
       successful_uploads: [],
       failed_uploads: [],
     };
   }
 };
 
-
-
+// ---------------------------
+// Download File
+// ---------------------------
 export const downloadFile = async (
   objectKey: string,
   filename?: string
 ): Promise<{ success: true; synced: boolean } | { success: false; error: string }> => {
   try {
-    const response = await api.get(`/files/${objectKey}`, {
-      responseType: "blob",
-    });
+    if (!objectKey) {
+      return { success: false, error: "Invalid file key provided." };
+    }
 
-    // Get sync status from custom header
+    const response = await api.get(`/files/${objectKey}`, { responseType: "blob" });
+
     const synced = response.headers["x-synced-to-aws"] === "true";
-
-    // Create blob URL and trigger download
     const blob = new Blob([response.data]);
     const url = window.URL.createObjectURL(blob);
-    
+
     const link = document.createElement("a");
     link.href = url;
     link.download = filename || objectKey.split("/").pop() || "download";
     document.body.appendChild(link);
     link.click();
-    
-    // Cleanup
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
 
-    return {
-      success: true,
-      synced,
-    };
+    return { success: true, synced };
   } catch (error) {
-    console.error("Error downloading file:", error);
-    const axiosError = error as AxiosError<{ detail?: string }>;
-    const errorMessage =
-      axiosError?.response?.data?.detail ||
-      axiosError?.message ||
-      "An unknown error occurred while downloading the file.";
-    
-    return {
-      success: false,
-      error: errorMessage,
-    };
+    return handleApiError(error, "An unknown error occurred while downloading the file.");
   }
 };
 
-
+// ---------------------------
+// Get File Info
+// ---------------------------
 export const getFileInfo = async (
   objectKey: string
 ): Promise<FileInfoResponse | FileInfoErrorResponse> => {
   try {
     const { data } = await api.get(`/files/${objectKey}/info`);
 
-    return {
-      success: true,
-      bucket: data.bucket,
-      object_key: data.object_key,
-      content_length: data.content_length,
-      last_modified: data.last_modified ? new Date(data.last_modified).toISOString() : "",
-      aws_bucket: data.aws_bucket,
-      synced: data.synced,
-      last_synced: data.last_synced,
-      is_shared: data.is_shared,
-    };
-  } catch (error) {
-    console.error("Error getting file info:", error);
-    const axiosError = error as AxiosError<{ detail?: string }>;
-    const errorMessage =
-      axiosError?.response?.data?.detail ||
-      axiosError?.message ||
-      "An unknown error occurred while fetching file info.";
+    if (!data) {
+      return { success: false, error: "File info not available." };
+    }
 
     return {
-      success: false,
-      error: errorMessage,
+      success: true,
+      bucket: data.bucket ?? "",
+      object_key: data.object_key ?? objectKey,
+      content_length: data.content_length ?? 0,
+      last_modified: data.last_modified
+        ? new Date(data.last_modified).toISOString()
+        : "",
+      aws_bucket: data.aws_bucket ?? "",
+      synced: Boolean(data.synced),
+      last_synced: data.last_synced ?? null,
+      is_shared: Boolean(data.is_shared),
     };
+  } catch (error) {
+    return handleApiError(error, "An unknown error occurred while fetching file info.");
   }
 };
 
-
-
+// ---------------------------
+// Delete File
+// ---------------------------
 export const deleteFile = async (
   objectKey: string,
   sync = false
 ): Promise<DeleteFileResponse | DeleteFileErrorResponse> => {
   try {
-    const { data } = await api.delete(`/files/${objectKey}`, {
-      params: {
-        sync,
-      },
-    });
+    if (!objectKey) {
+      return { success: false, error: "Invalid file key provided." };
+    }
+
+    const { data } = await api.delete(`/files/${objectKey}`, { params: { sync } });
 
     return {
       success: true,
-      message: data.message,
-      bucket: data.bucket,
-      filename: data.filename,
-      synced: data.synced,
+      message: data?.message ?? "File deleted successfully.",
+      bucket: data?.bucket ?? null,
+      filename: data?.filename ?? objectKey,
+      synced: Boolean(data?.synced),
     };
   } catch (error) {
-    console.error("Error deleting file:", error);
-    const axiosError = error as AxiosError<{ detail?: string }>;
-    const errorMessage =
-      axiosError?.response?.data?.detail ||
-      axiosError?.message ||
-      "An unknown error occurred while deleting the file.";
-
-    return {
-      success: false,
-      error: errorMessage,
-    };
+    return handleApiError(error, "An unknown error occurred while deleting the file.");
   }
 };

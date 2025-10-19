@@ -18,11 +18,9 @@ from app.database import get_db
 from app.oauth2 import get_current_user
 from app.models import SharedLink, User
 
-
 # ============================================================================
 # Pydantic Models
 # ============================================================================
-
 
 class CreateSharedLinkIn(BaseModel):
     bucket: str
@@ -31,18 +29,19 @@ class CreateSharedLinkIn(BaseModel):
     expires_at: Optional[datetime] = None
     enabled: Optional[bool] = True
 
-
 class SharedLinkOut(BaseModel):
     id: uuid.UUID
     name: str
     bucket: str
     object_key: str
+    size_bytes: Optional[int]
     expires_at: Optional[datetime]
+    updated_at: datetime
+    created_at: datetime
     enabled: bool
     has_password: bool
     qr_code: Optional[str]
     user_id: Optional[int]
-
 
 class SharedLinkListOut(BaseModel):
     items: List[SharedLinkOut]
@@ -50,17 +49,14 @@ class SharedLinkListOut(BaseModel):
     page: int
     page_size: int
 
-
 class UpdateSharedLinkIn(BaseModel):
     enabled: Optional[bool] = None
     expires_at: Optional[datetime] = None
     password: Optional[str] = None
 
-
 # ============================================================================
 # Helper Functions
 # ============================================================================
-
 
 def generate_presigned_url(bucket: str, key: str, expires_seconds: int = 60) -> str:
     """Generate a presigned URL for S3 object access."""
@@ -74,18 +70,15 @@ def generate_presigned_url(bucket: str, key: str, expires_seconds: int = 60) -> 
     except ClientError as exc:
         raise HTTPException(status_code=502, detail="Error generating presigned URL")
 
-
 # ============================================================================
 # Router
 # ============================================================================
 
 router = APIRouter(prefix="/share", tags=["Share Files"])
 
-
 # ============================================================================
 # Endpoints
 # ============================================================================
-
 
 @router.post(
     "/create", response_model=SharedLinkOut, status_code=status.HTTP_201_CREATED
@@ -106,6 +99,16 @@ def create_shared_link(
         raise HTTPException(
             status_code=400, detail="Expiration time must be in the future"
         )
+
+    # Fetch object metadata to get size
+    try:
+        head = aws_s3_client.head_object(Bucket=payload.bucket, Key=payload.object_key)
+        size_bytes = head.get("ContentLength")
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in ("404", "NotFound", "NoSuchKey", "NoSuchBucket"):
+            raise HTTPException(status_code=404, detail="Object or bucket not found")
+        raise HTTPException(status_code=502, detail="Error accessing storage")
 
     # Generate new UUID
     new_id = str(uuid.uuid4())
@@ -128,12 +131,13 @@ def create_shared_link(
     buf.seek(0)
     qr_code_b64 = base64.b64encode(buf.getvalue()).decode()
 
-    # Create new shared link, including the qr_code
+    # Create new shared link, including the qr_code and size
     link = SharedLink(
         id=new_id,
         bucket=payload.bucket,
         name=name,
         object_key=payload.object_key,
+        size_bytes=size_bytes,
         password=hashed_password,
         expires_at=expires_at,
         enabled=bool(payload.enabled),
@@ -146,17 +150,19 @@ def create_shared_link(
     db.refresh(link)
 
     return SharedLinkOut(
-        id=link.id,
-        bucket=link.bucket,
+        id=uuid.UUID(link.id),
         name=link.name,
+        bucket=link.bucket,
         object_key=link.object_key,
+        size_bytes=link.size_bytes,
         expires_at=link.expires_at,
+        updated_at=link.updated_at,
+        created_at=link.created_at,
         enabled=link.enabled,
         has_password=bool(link.password),
         qr_code=link.qr_code,
         user_id=link.user_id,
     )
-
 
 @router.get("/{link_id}/download")
 def get_download_link(
@@ -201,7 +207,6 @@ def get_download_link(
 
     return {"url": presigned, "expires_in": short_lived_seconds}
 
-
 @router.get("/{link_id}/qr")
 def generate_qr(
     link_id: str,
@@ -232,7 +237,6 @@ def generate_qr(
     image_bytes = base64.b64decode(link.qr_code)
     return StreamingResponse(io.BytesIO(image_bytes), media_type="image/png")
 
-
 @router.get("/me/{link_id}", response_model=SharedLinkOut)
 def get_link_info_for_owner(
     link_id: str,
@@ -256,17 +260,19 @@ def get_link_info_for_owner(
         raise HTTPException(status_code=403, detail="Not allowed")
 
     return SharedLinkOut(
-        id=link.id,
+        id=uuid.UUID(link.id),
         name=link.name,
         bucket=link.bucket,
         object_key=link.object_key,
+        size_bytes=link.size_bytes,
         expires_at=link.expires_at,
+        updated_at=link.updated_at,
+        created_at=link.created_at,
         enabled=link.enabled,
         has_password=bool(link.password),
         qr_code=link.qr_code,
         user_id=link.user_id,
     )
-
 
 @router.get("/me", response_model=SharedLinkListOut)
 def list_my_shared_links(
@@ -311,10 +317,14 @@ def list_my_shared_links(
     # Convert to output models
     out_items = [
         SharedLinkOut(
-            id=item.id,
+            id=uuid.UUID(item.id),
+            name=item.name,
             bucket=item.bucket,
             object_key=item.object_key,
+            size_bytes=item.size_bytes,
             expires_at=item.expires_at,
+            updated_at=item.updated_at,
+            created_at=item.created_at,
             enabled=item.enabled,
             has_password=bool(item.password),
             qr_code=item.qr_code,
@@ -326,7 +336,6 @@ def list_my_shared_links(
     return SharedLinkListOut(
         items=out_items, total=total, page=page, page_size=page_size
     )
-
 
 @router.get("/{link_id}/public")
 def get_file_info(link_id: str, db: Session = Depends(get_db)):
@@ -342,23 +351,23 @@ def get_file_info(link_id: str, db: Session = Depends(get_db)):
     if not link:
         raise HTTPException(status_code=404, detail="Shared link not found")
 
-    try:
-        head = aws_s3_client.head_object(Bucket=link.bucket, Key=link.object_key)
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
-        if code in ("404", "NotFound", "NoSuchKey", "NoSuchBucket"):
-            raise HTTPException(status_code=404, detail="Object or bucket not found")
-        raise HTTPException(status_code=502, detail="Error accessing storage")
+    # Check if link is enabled
+    if not link.enabled:
+        raise HTTPException(status_code=403, detail="Link is disabled")
+
+    # Check if link has expired
+    now = datetime.now(timezone.utc)
+    if link.expires_at and now > link.expires_at:
+        raise HTTPException(status_code=410, detail="Link expired")
 
     # Return file information
     info = {
         "name": link.name,
         "bucket": link.bucket,
-        "size_bytes": head.get("ContentLength"),
+        "size_bytes": link.size_bytes,
     }
 
     return info
-
 
 @router.put("/{link_id}", response_model=SharedLinkOut)
 def update_shared_link(
@@ -418,17 +427,19 @@ def update_shared_link(
     db.refresh(link)
 
     return SharedLinkOut(
-        id=link.id,
+        id=uuid.UUID(link.id),
         name=link.name,
         bucket=link.bucket,
         object_key=link.object_key,
+        size_bytes=link.size_bytes,
         expires_at=link.expires_at,
+        updated_at=link.updated_at,
+        created_at=link.created_at,
         enabled=link.enabled,
         has_password=bool(link.password),
         qr_code=link.qr_code,
         user_id=link.user_id,
     )
-
 
 @router.delete("/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_shared_link(

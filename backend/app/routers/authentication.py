@@ -50,7 +50,16 @@ def login(request: schemas.Login, db: Session = Depends(get_db)):
     access_token = create_access_token(user.email)
     refresh_token = create_refresh_token(user.email)
 
-    response = JSONResponse(content={"message": "Login successful"})
+    response = JSONResponse(
+        content={
+            "message": "Login successful",
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email,
+            },
+        }
+    )
     response.set_cookie(
         key="access_token",
         value=access_token,
@@ -65,7 +74,7 @@ def login(request: schemas.Login, db: Session = Depends(get_db)):
         httponly=True,
         secure=True,
         samesite="lax",
-        max_age=7 * 24 * 60 * 60,  # 7 days
+        max_age=15 * 24 * 60 * 60,  # 15 days
     )
     return response
 
@@ -106,6 +115,48 @@ def refresh_token(request: Request):
         max_age=15 * 60,
     )
     return response
+
+
+@router.put("/info", response_model=schemas.ShowUser)
+def update_user_info(
+    user: schemas.User,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Check if email is being changed and ensure it's unique
+    if user.email != current_user.email:
+        existing_user = (
+            db.query(models.User).filter(models.User.email == user.email).first()
+        )
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already in use")
+
+    # Update user fields (excluding password)
+    current_user.name = user.name
+    current_user.email = user.email
+
+    # Commit changes
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.put("/change-password")
+def change_password(
+    request: schemas.ChangePassword,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Verify old password
+    if not hashing.Hash.verify(request.old_password, current_user.password):
+        raise HTTPException(status_code=400, detail="Old password is incorrect")
+
+    # Hash and update new password
+    current_user.password = hashing.Hash.encrypt(request.new_password)
+
+    # Commit changes
+    db.commit()
+    return {"message": "Password changed successfully"}
 
 
 # Logout: clear cookies

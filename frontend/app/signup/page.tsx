@@ -1,9 +1,10 @@
 "use client";
 
-import type React from "react";
-
+import React from "react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/auth.context"; // Adjust path as needed
+import { register } from "@/api/auth.api";
 import { BrandWordmark } from "@/components/layout/brand-wordmark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,8 @@ import Link from "next/link";
 
 export default function SignupPage() {
   const router = useRouter();
+  const { login } = useAuth();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -27,6 +30,11 @@ export default function SignupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (!name || !name.trim() || name.trim().length < 2) {
+      setError("Name must be at least 2 characters");
+      return;
+    }
 
     if (!email || !password || !confirmPassword) {
       setError("Please fill in all fields");
@@ -44,16 +52,27 @@ export default function SignupPage() {
     }
 
     setIsLoading(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      const registerResponse = await register({ name, email, password });
 
-    localStorage.setItem(
-      "auth",
-      JSON.stringify({ email, authenticated: true })
-    );
-    router.push("/");
+      if (!registerResponse.success) {
+        setError(registerResponse.error || "Registration failed");
+        return;
+      }
 
-    setIsLoading(false);
+      // Authenticate after successful registration
+      const user = await login({ email, password });
+
+      if (user) {
+        router.push("/");
+      } else {
+        setError("Authentication failed after registration");
+      }
+    } catch (err) {
+      setError("Registration failed. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -72,6 +91,21 @@ export default function SignupPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="name" className="text-sm font-medium">
+                  Full Name
+                </label>
+                <Input
+                  id="name"
+                  type="text"
+                  placeholder="John Doe"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={isLoading}
+                  className="transition-all"
+                />
+              </div>
+
               <div className="space-y-2">
                 <label htmlFor="email" className="text-sm font-medium">
                   Email

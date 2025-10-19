@@ -35,3 +35,8 @@ class ShowUser(BaseModel):
     email: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ChangePassword(BaseModel):
+    old_password: str
+    new_password: str

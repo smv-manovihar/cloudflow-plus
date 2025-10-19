@@ -1,4 +1,12 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Boolean,
+    ForeignKey,
+    BigInteger,
+)
 from sqlalchemy.orm import relationship
 from app.database import Base
 import uuid
@@ -13,6 +21,7 @@ class SharedLink(Base):
     name = Column(String, nullable=False)
     bucket = Column(String, nullable=False)
     object_key = Column(String, nullable=False)
+    size_bytes = Column(BigInteger, nullable=True)
     password = Column(String)
     enabled = Column(Boolean, nullable=False)
     qr_code = Column(String)

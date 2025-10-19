@@ -11,7 +11,10 @@ export interface SharedLink {
   name: string;
   bucket: string;
   object_key: string;
+  size_bytes?: number;
   expires_at?: string; // ISO datetime
+  updated_at: string; // ISO datetime
+  created_at: string; // ISO datetime
   enabled: boolean;
   has_password: boolean;
   qr_code?: string;

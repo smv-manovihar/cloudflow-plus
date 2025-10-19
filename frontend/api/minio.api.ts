@@ -141,31 +141,15 @@ const updateBucketConfig = async (bucketName: string, payload: any) => {
 }
 
 const downloadFileFromBucket = async (bucketName: string, objectKey: string) => {
-    let renewed = false;
     try {
-        let url = await getPresignedUrl(bucketName, objectKey);
+        const url = await getPresignedUrl(bucketName, objectKey);
         await downloadBlobFromUrl(url, objectKey);
         return {success: true};
     } catch (error) {
+        console.error(error);
         const axError = error as AxiosError<{detail: string}>;
-        if (!renewed && (axError.response?.status === 403 || axError.response?.status === 401)) {
-            // expired, renew
-            renewed = true;
-            try {
-                const newUrl = await getPresignedUrl(bucketName, objectKey, true);
-                await downloadBlobFromUrl(newUrl, objectKey);
-                return {success: true};
-            } catch (renewError) {
-                console.error(renewError);
-                const renewAxError = renewError as AxiosError<{detail: string}>;
-                toast.error(renewAxError.response?.data?.detail || "Error downloading file after renewal");
-                return {success: false, error: renewError};
-            }
-        } else {
-            console.error(error);
-            toast.error(axError.response?.data?.detail || "Error downloading file");
-            return {success: false, error};
-        }
+        toast.error(axError.response?.data?.detail || "Error downloading file");
+        return {success: false, error};
     }
 }
 

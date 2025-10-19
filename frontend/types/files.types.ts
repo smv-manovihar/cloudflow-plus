@@ -79,6 +79,7 @@ export interface FileInfoResponse {
   synced: boolean;
   last_synced: string | null;
   is_shared: boolean;
+  shared_link_id: string;
 }
 
 export interface FileInfoErrorResponse {
@@ -122,4 +123,18 @@ export interface UploadFilesErrorResponse {
   error: string;
   successful_uploads: UploadResult[];
   failed_uploads: UploadErrorResult[];
+}
+
+export interface FileDetails {
+  name: string;
+  size: { value: string; unit: string };
+  modified: string;
+  type: string;
+  bucket: string;
+  objectKey: string;
+  isShared: boolean;
+  isSynced: boolean;
+  lastSynced: string | null;
+  syncedBucket?: string | null;
+  sharedLinkId: string | null;
 }

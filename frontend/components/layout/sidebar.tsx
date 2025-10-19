@@ -21,6 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/contexts/auth.context";
 
 const navItems = [
   { href: "/", label: "Home", icon: Home },
@@ -43,23 +44,36 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [userName, setUserName] = useState("John Doe");
-  const [userEmail, setUserEmail] = useState("john@example.com");
+  const { user, logout, isLoading } = useAuth();
+  const [userName, setUserName] = useState("");
+  const [userEmail, setUserEmail] = useState("");
 
-  // Load user info from localStorage
   useEffect(() => {
-    const auth = localStorage.getItem("auth");
-    if (auth) {
-      const authData = JSON.parse(auth);
-      setUserName(authData.name || "John Doe");
-      setUserEmail(authData.email || "john@example.com");
+    if (user) {
+      setUserName(user.name);
+      setUserEmail(user.email);
+    } else {
+      setUserName("");
+      setUserEmail("");
     }
-  }, []);
+  }, [user]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("auth");
-    router.push("/login");
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      router.push("/login");
+    }
   };
+
+  const SkeletonLine = ({ className = "" }: { className?: string }) => (
+    <div
+      className={cn(
+        "rounded-md animate-pulse bg-gray-300 dark:bg-gray-700",
+        className
+      )}
+    />
+  );
 
   if (isMobile) {
     return (
@@ -135,12 +149,21 @@ export function Sidebar({
                   >
                     <User2 className="h-4 w-4 text-sidebar-foreground flex-shrink-0" />
                     <div className="min-w-0 flex-1 text-left">
-                      <p className="text-xs font-semibold text-sidebar-foreground truncate">
-                        {userName}
-                      </p>
-                      <p className="text-xs text-sidebar-foreground/70 truncate">
-                        {userEmail}
-                      </p>
+                      {isLoading ? (
+                        <>
+                          <SkeletonLine className="h-3 w-36 mb-2" />
+                          <SkeletonLine className="h-3 w-28" />
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs font-semibold text-sidebar-foreground truncate">
+                            {userName}
+                          </p>
+                          <p className="text-xs text-sidebar-foreground/70 truncate">
+                            {userEmail}
+                          </p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -161,7 +184,6 @@ export function Sidebar({
     );
   }
 
-  // Desktop sidebar
   return (
     <nav
       className={cn(
@@ -235,16 +257,32 @@ export function Sidebar({
                     : "justify-center w-8 h-8 mb-2 rounded-lg hover:bg-sidebar-primary hover:text-sidebar-primary-foreground"
                 )}
               >
-                <User2 className="h-4 w-4 text-sidebar-foreground flex-shrink-0" />
-                {isExpanded && (
-                  <div className="min-w-0 flex-1 text-left">
-                    <p className="text-xs font-semibold text-sidebar-foreground truncate">
-                      {userName}
-                    </p>
-                    <p className="text-xs text-sidebar-foreground/70 truncate">
-                      {userEmail}
-                    </p>
-                  </div>
+                {isLoading ? (
+                  !isExpanded ? (
+                    <div className="h-6 w-6 rounded-full animate-pulse bg-gray-300 dark:bg-gray-700" />
+                  ) : (
+                    <>
+                      <div className="h-6 w-6 rounded-full animate-pulse bg-gray-300 dark:bg-gray-700 flex-shrink-0" />
+                      <div className="min-w-0 flex-1 text-left ml-2">
+                        <SkeletonLine className="h-3 w-36 mb-2" />
+                        <SkeletonLine className="h-3 w-28" />
+                      </div>
+                    </>
+                  )
+                ) : (
+                  <>
+                    <User2 className="h-4 w-4 text-sidebar-foreground flex-shrink-0" />
+                    {isExpanded && (
+                      <div className="min-w-0 flex-1 text-left">
+                        <p className="text-xs font-semibold text-sidebar-foreground truncate">
+                          {userName}
+                        </p>
+                        <p className="text-xs text-sidebar-foreground/70 truncate">
+                          {userEmail}
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { File, FileText, ImageIcon, Video, FileJson } from "lucide-react";
 import { api } from "@/config/api.config";
+import { AxiosError } from "axios";
 
 interface FilePreviewProps {
   objectKey: string;
@@ -188,7 +189,6 @@ export function FilePreview({
             extension,
             response.headers["content-type"] || fileType
           );
-          console.log(`Using MIME type for ${fileName}: ${mimeType}`); // Debug log
           const blob = new Blob([response.data], { type: mimeType });
           const url = URL.createObjectURL(blob);
           urlRef.current = url;
@@ -199,14 +199,18 @@ export function FilePreview({
             timestamp: now,
           });
         }
-      } catch (err: any) {
-        setError(
-          err.response?.status === 401
-            ? "Unauthorized access to file"
-            : err.response?.status === 404
-            ? "File not found"
-            : "Failed to load file preview"
-        );
+      } catch (err) {
+        if (err instanceof AxiosError) {
+          setError(
+            err.response?.status === 401
+              ? "Unauthorized access to file"
+              : err.response?.status === 404
+              ? "File not found"
+              : "Failed to load file preview"
+          );
+        } else {
+          setError("Failed to load file preview");
+        }
         console.error(err);
       } finally {
         setIsLoading(false);

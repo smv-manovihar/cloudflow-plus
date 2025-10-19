@@ -588,17 +588,18 @@ async def get_file_info(
     try:
         head = minio_s3_client.head_object(Bucket=BUCKET_NAME, Key=object_key)
         synced = is_synced_via_metadata(BUCKET_NAME, object_key, head)
-
+        shared_link_id = None
         try:
-            share_count = (
+            shared_link_id = (
                 db.query(SharedLink)
                 .filter(
                     SharedLink.object_key == object_key,
                     SharedLink.bucket == BUCKET_NAME,
                 )
-                .count()
+                .first()
+                .id
             )
-            is_shared = share_count > 0
+            is_shared = shared_link_id is not None
         except Exception as db_err:
             logger.warning(
                 f"DB error checking shared status for {object_key}: {db_err}"
@@ -624,6 +625,7 @@ async def get_file_info(
                 "aws_bucket": aws_bucket,
                 "last_synced": last_synced,
                 "is_shared": is_shared,
+                "shared_link_id": shared_link_id,
             }
         )
     except ClientError as exc:

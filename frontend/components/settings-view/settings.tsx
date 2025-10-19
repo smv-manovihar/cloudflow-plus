@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/auth.context"; // Adjust path as needed
 import {
   Card,
   CardContent,
@@ -23,21 +24,29 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export default function Settings() {
+  const { user, isLoading: authLoading } = useAuth();
   const [profileData, setProfileData] = useState({
-    fullName: "John Doe",
-    email: "john@example.com",
-    phone: "+1 (555) 123-4567",
+    fullName: "",
+    email: "",
   });
-
   const [passwordData, setPasswordData] = useState({
     current: "",
     new: "",
     confirm: "",
   });
-
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Initialize profile data with user details on mount
+  useEffect(() => {
+    if (user) {
+      setProfileData({
+        fullName: user.name,
+        email: user.email,
+      });
+    }
+  }, [user]);
 
   const handleProfileChange = (field: string, value: string) => {
     setProfileData((prev) => ({ ...prev, [field]: value }));
@@ -48,10 +57,26 @@ export default function Settings() {
   };
 
   const handleSaveProfile = async () => {
+    if (!profileData.fullName.trim() || !profileData.email.trim()) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+
     setIsSaving(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    toast.success("Profile updated successfully");
-    setIsSaving(false);
+    try {
+      // TODO: Implement updateUser API call here, e.g., await updateUser(profileData);
+      // For now, simulate with delay
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      toast.success("Profile updated successfully");
+
+      // Optionally, refetch user or update context
+      // e.g., const updatedUser = await verifyUser(); setUser(updatedUser.data);
+    } catch (error) {
+      toast.error("Failed to update profile. Please try again.");
+      console.error("Profile update error:", error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleChangePassword = async () => {
@@ -71,10 +96,18 @@ export default function Settings() {
     }
 
     setIsSaving(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    toast.success("Password changed successfully");
-    setPasswordData({ current: "", new: "", confirm: "" });
-    setIsSaving(false);
+    try {
+      // TODO: Implement changePassword API call here
+      // e.g., await changePassword(passwordData);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      toast.success("Password changed successfully");
+      setPasswordData({ current: "", new: "", confirm: "" });
+    } catch (error) {
+      toast.error("Failed to change password. Please try again.");
+      console.error("Password change error:", error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDeleteAccount = async () => {
@@ -84,10 +117,29 @@ export default function Settings() {
     }
 
     setIsSaving(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    toast.success("Account deleted");
-    window.location.href = "/login";
+    try {
+      // TODO: Implement deleteAccount API call here
+      // e.g., await deleteAccount(); await logout();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      toast.success("Account deleted");
+      window.location.href = "/login";
+    } catch (error) {
+      toast.error("Failed to delete account. Please try again.");
+    } finally {
+      setIsSaving(false);
+      setShowDeleteAlert(false);
+      setDeleteConfirm("");
+    }
   };
+
+  // Show loading while auth is initializing
+  if (authLoading || !user) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-muted-foreground">Loading settings...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-auto">
@@ -129,18 +181,6 @@ export default function Settings() {
                   value={profileData.email}
                   onChange={(e) => handleProfileChange("email", e.target.value)}
                   placeholder="your@email.com"
-                  className="w-full"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">
-                  Phone
-                </label>
-                <Input
-                  value={profileData.phone}
-                  onChange={(e) => handleProfileChange("phone", e.target.value)}
-                  placeholder="+1 (555) 123-4567"
                   className="w-full"
                 />
               </div>

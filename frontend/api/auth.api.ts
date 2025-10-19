@@ -1,80 +1,64 @@
 import { api } from "@/config/api.config";
-import { AxiosError } from "axios";
-import { ApiResponse } from "@/types/api.type";
+import { handleApiError } from "@/utils/helpers";
+import {ApiResponse, LoginData, LoginResponse, RegisterData, User } from "@/types/auth.types";
+
+interface MessageResponse {
+  message: string;
+}
 
 export const login = async (data: LoginData): Promise<ApiResponse<User>> => {
   try {
-    const response = await api.post("/auth/login", data, { 
-      withCredentials: true
-    });
+    const response = await api.post<LoginResponse>("/auth/login", data);
     return {
       success: true,
       message: response.data.message,
-      data: response.data.user,
+      data: response.data.user
     };
   } catch (error) {
-    return handleApiError(error as AxiosError);
+    return handleApiError(error, "Login failed") as ApiResponse<User>;
   }
 };
 
 export const register = async (data: RegisterData): Promise<ApiResponse<User>> => {
   try {
-    const response = await api.post("/auth/register", data, { 
-      withCredentials: true
-    });
+    const response = await api.post<User>("/auth/register", data);
     return {
       success: true,
-      message: response.data.message,
-      data: response.data.user,
+      data: response.data, 
     };
   } catch (error) {
-    return handleApiError(error as AxiosError);
+    return handleApiError(error, "Registration failed") as ApiResponse<User>;
   }
 };
 
 export const refreshToken = async (): Promise<ApiResponse<User>> => {
   try {
-    const response = await api.post("/auth/refresh", {}, { 
-      withCredentials: true
-    });
+    const response = await api.post<MessageResponse>("/auth/refresh");
     return {
       success: true,
       message: response.data.message,
-      data: response.data.user,
+      data: undefined,
     };
   } catch (error) {
-    return handleApiError(error as AxiosError);
+    return handleApiError(error, "Token refresh failed") as ApiResponse<User>;
   }
 };
 
 export const verifyUser = async (): Promise<ApiResponse<User>> => {
   try {
-    const response = await api.get("/auth/me", { 
-      withCredentials: true
-    });
+    const response = await api.get<User>("/auth/me");
     return {
       success: true,
-      message: response.data.message,
-      data: response.data.user,
+      data: response.data,
     };
   } catch (error) {
-    return getNewToken(error as AxiosError);
+    return handleApiError(error, "Failed to verify user") as ApiResponse<User>;
   }
-};
-
-export const getNewToken = async (error: AxiosError): Promise<ApiResponse<User>> => {
-  // If the error is a 401 error, try to refresh the token
-  if (error.response?.status === 401) {
-    return await refreshToken();
-  }
-  
-  // For non-401 errors, use regular error handling
-  return handleApiError(error);
 };
 
 export const logout = async (): Promise<ApiResponse<void>> => {
   try {
-    const response = await api.post("/auth/logout", {}, { 
+    const response = await api.post<MessageResponse>("/auth/logout", {}, { 
       withCredentials: true
     });
     return {
@@ -82,6 +66,6 @@ export const logout = async (): Promise<ApiResponse<void>> => {
       message: response.data.message,
     };
   } catch (error) {
-    return handleApiError(error as AxiosError);
+    return handleApiError(error, "Logout failed") as ApiResponse<void>;
   }
 };

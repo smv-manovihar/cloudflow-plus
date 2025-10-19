@@ -1,7 +1,6 @@
 import type React from "react";
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
-import { Analytics } from "@vercel/analytics/next";
 import { AppLayout } from "@/components/layout/app-layout";
 import { ThemeProvider } from "@/components/layout/theme-provider";
 import "./globals.css";
@@ -11,7 +10,7 @@ import {
   IBM_Plex_Mono as V0_Font_IBM_Plex_Mono,
   Lora as V0_Font_Lora,
 } from "next/font/google";
-import { AuthProvider } from "@/context/auth-context";
+import { AuthProvider } from "@/contexts/auth.context";
 
 // Initialize fonts
 const _plusJakartaSans = V0_Font_Plus_Jakarta_Sans({
@@ -45,10 +44,9 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <Toaster position="top-right" />
-          {/* <AuthProvider> */}
-          <AppLayout>{children}</AppLayout>
-          <Analytics />
-          {/* </AuthProvider> */}
+          <AuthProvider>
+            <AppLayout>{children}</AppLayout>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

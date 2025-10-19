@@ -1,9 +1,11 @@
 "use client";
 
-import type React from "react";
-
-import { useState } from "react";
+import React from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/auth.context"; // Adjust path as needed
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react"; // Ensure lucide-react is installed
 import { BrandWordmark } from "@/components/layout/brand-wordmark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,31 +20,63 @@ import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login: authLogin } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Clear error when user starts typing
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(""), 5000); // Auto-clear after 5 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setIsLoading(true);
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    if (email && password) {
-      // Store auth state in localStorage
-      localStorage.setItem(
-        "auth",
-        JSON.stringify({ email, authenticated: true })
-      );
-      router.push("/");
-    } else {
+    if (!email || !password) {
       setError("Please fill in all fields");
+      return;
     }
 
-    setIsLoading(false);
+    setIsLoading(true);
+    try {
+      const user = await authLogin({ email, password });
+
+      if (user) {
+        router.push("/");
+      } else {
+        setError("Login failed. Please try again.");
+      }
+    } catch (err: any) {
+      // Provide more specific error messages based on common issues
+      let errorMessage =
+        "Invalid credentials. Please check your email and password.";
+
+      if (
+        err.message?.includes("401") ||
+        err.message?.includes("Invalid credentials")
+      ) {
+        errorMessage = "Incorrect email or password. Please try again.";
+      } else if (err.message?.includes("network")) {
+        errorMessage =
+          "Network error. Please check your connection and try again.";
+      } else if (err.message?.includes("failed")) {
+        errorMessage = "Authentication failed. Please try again later.";
+      }
+
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleInputChange = (value: string) => {
+    if (error) setError("");
   };
 
   return (
@@ -70,7 +104,10 @@ export default function LoginPage() {
                   type="email"
                   placeholder="you@example.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    handleInputChange(e.target.value);
+                  }}
                   disabled={isLoading}
                   className="transition-all"
                 />
@@ -85,16 +122,26 @@ export default function LoginPage() {
                   type="password"
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    handleInputChange(e.target.value);
+                  }}
                   disabled={isLoading}
                   className="transition-all"
                 />
               </div>
 
               {error && (
-                <div className="text-sm text-destructive animate-in fade-in">
-                  {error}
-                </div>
+                <Alert
+                  variant="destructive"
+                  className="animate-in slide-in-from-top-2 duration-300 border-destructive/50 bg-destructive/5 text-destructive-foreground/80 shadow-sm rounded-lg"
+                >
+                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 ml-0.5 opacity-80" />
+                  <AlertTitle className="font-medium text-sm">Oops!</AlertTitle>
+                  <AlertDescription className="text-xs leading-relaxed">
+                    {error}
+                  </AlertDescription>
+                </Alert>
               )}
 
               <Button type="submit" className="w-full" disabled={isLoading}>
@@ -110,7 +157,7 @@ export default function LoginPage() {
             </form>
 
             <div className="mt-6 text-center text-sm">
-              Don't have an account?{" "}
+              Don&apos;t have an account?{" "}
               <Link
                 href="/signup"
                 className="text-primary hover:underline font-medium"

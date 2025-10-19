@@ -40,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { formatFileSize } from "@/lib/helpers";
+import { formatFileSize } from "@/utils/helpers";
 
 export default function FileBrowser() {
   const searchParams = useSearchParams();
@@ -263,6 +263,8 @@ export default function FileBrowser() {
   };
 
   const handleDelete = async (fileName: string, fileKey: string) => {
+    // setDeleteDialogOpen(true);
+    // setDeleteType("local");
     const toastId = toast.loading(`Deleting ${fileName}...`);
     try {
       const result = await deleteFile(fileKey, false);
