@@ -1,4 +1,3 @@
-
 import { api } from "@/config/api.config";
 
 import {
@@ -14,6 +13,7 @@ import {
   ListSharedLinksResultType,
   SharedLink,
   SharedLinkList,
+  SharedListItem,
   UpdateSharedLinkPayload,
   UpdateSharedLinkResultType,
 } from "@/types/share.types";
@@ -147,18 +147,15 @@ export const listSharedLinks = async (
     const { data } = await api.get("/share/me", { params });
 
     const result: SharedLinkList = {
-      items: data.items.map((item: SharedLink) => ({
+      items: data.items.map((item: SharedListItem) => ({
         id: item.id,
         name: item.name,
         bucket: item.bucket,
-        object_key: item.object_key,
         size_bytes: item.size_bytes,
         expires_at: item.expires_at,
         updated_at: item.updated_at,
         created_at: item.created_at,
         enabled: item.enabled,
-        has_password: item.has_password,
-        qr_code: item.qr_code,
         user_id: item.user_id,
       })),
       total: data.total,

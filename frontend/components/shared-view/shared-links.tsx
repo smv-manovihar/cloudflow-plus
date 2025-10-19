@@ -24,6 +24,7 @@ import {
   updateSharedLink,
 } from "@/api/share.api";
 import { SharedLink } from "@/types/share.types";
+import SharedPaginationControls from "./shared-pagination-controls";
 
 export function SharedLinks() {
   const router = useRouter();
@@ -33,15 +34,15 @@ export function SharedLinks() {
   const [linkToRevoke, setLinkToRevoke] = useState<SharedLink | null>(null);
   const [links, setLinks] = useState<SharedLink[]>([]);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const pageSize = 20;
 
-  const fetchLinks = async () => {
+  const fetchLinks = async (currentPage: number = page) => {
     setIsLoading(true);
     try {
       const response = await listSharedLinks(
-        page,
+        currentPage,
         pageSize,
         undefined,
         showExpired,
@@ -49,7 +50,11 @@ export function SharedLinks() {
       );
       if (response.success) {
         setLinks(response.result.items);
-        setTotalPages(Math.ceil(response.result.total / pageSize));
+        setTotal(response.result.total);
+        // Handle empty page by going to previous page
+        if (response.result.items.length === 0 && currentPage > 1) {
+          setPage(currentPage - 1);
+        }
       } else {
         toast.error(response.error || "Failed to fetch shared links");
       }
@@ -59,6 +64,10 @@ export function SharedLinks() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, showExpired]);
 
   useEffect(() => {
     fetchLinks();
@@ -96,8 +105,9 @@ export function SharedLinks() {
     try {
       const response = await deleteSharedLink(linkId);
       if (response.success) {
-        setLinks((prev) => prev.filter((link) => link.id !== linkId));
         toast.success("Share link revoked", { duration: 2000 });
+        // Refetch to update list and total count efficiently
+        fetchLinks();
       } else {
         toast.error(response.error || "Failed to revoke share link");
       }
@@ -120,6 +130,15 @@ export function SharedLinks() {
     return `${mb.toFixed(2)} MB`;
   };
 
+  const handlePrevious = () => {
+    setPage((p) => Math.max(1, p - 1));
+  };
+
+  const handleNext = () => {
+    const totalPages = Math.ceil(total / pageSize);
+    setPage((p) => Math.min(totalPages, p + 1));
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       <div className="border-b border-border bg-card p-4 md:p-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
@@ -138,34 +157,15 @@ export function SharedLinks() {
             {showExpired ? "Hide Expired" : "Show Expired"}
           </Button>
         </div>
-        <div className="flex justify-between items-center">
-          <Button
-            variant="outline"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {page} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
         {isLoading ? (
-          <div className="flex items-center justify-center h-64 text-center animate-in fade-in duration-500">
+          <div className="flex items-center justify-center h-full text-center animate-in fade-in duration-500">
             <p className="text-sm font-medium text-foreground">Loading...</p>
           </div>
         ) : links.length === 0 ? (
-          <div className="flex items-center justify-center h-64 text-center animate-in fade-in duration-500">
+          <div className="flex items-center justify-center h-full text-center animate-in fade-in duration-500">
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">
                 No shared links
@@ -272,6 +272,14 @@ export function SharedLinks() {
           </div>
         )}
       </div>
+
+      <SharedPaginationControls
+        total={total}
+        page={page}
+        pageSize={pageSize}
+        onPrevious={handlePrevious}
+        onNext={handleNext}
+      />
 
       <AlertDialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>
         <AlertDialogContent>

@@ -34,7 +34,6 @@ import ShareDialog from "@/components/files-view/share-file-dialog";
 import DeleteDialog from "@/components/files-view/delete-file-dialog";
 import PreviewDialog from "@/components/files-view/preview-dialog";
 
-// Header Component
 interface HeaderProps {
   fileName: string;
   objectKey: string;
@@ -279,7 +278,7 @@ function StatusInfoCard({ fileData }: StatusInfoCardProps) {
 export default function FileDetailsPage() {
   const router = useRouter();
   const params = useParams();
-  const objectKey = params.id as string;
+  const objectKey = decodeURIComponent(params.id as string);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -398,7 +397,7 @@ export default function FileDetailsPage() {
 
   const handleShare = () => {
     if (fileData!.isShared && fileData!.sharedLinkId) {
-      router.push(`/share/${fileData!.sharedLinkId}/view`);
+      router.push(`/shared/${fileData!.sharedLinkId}/view`);
     } else {
       setShowShareDialog(true);
     }
@@ -436,7 +435,7 @@ export default function FileDetailsPage() {
       );
       setIsDeleting(false);
       setShowDeleteDialog(false);
-      setTimeout(() => router.push("/"), 500);
+      router.back();
     } else {
       const apiError = response as DeleteFileErrorResponse;
       toast.error(apiError.error || "Delete failed", { id: toastId });

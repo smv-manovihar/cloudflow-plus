@@ -28,6 +28,8 @@ export interface SharedLinkList {
   page_size: number;
 }
 
+export type SharedListItem = Omit<SharedLink, "qr_code" | "has_password">;
+
 export interface UpdateSharedLinkPayload {
   enabled?: boolean;
   expires_at?: Date; // JavaScript Date object

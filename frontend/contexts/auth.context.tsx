@@ -14,6 +14,8 @@ import {
 } from "@/api/auth.api";
 import { LoginData, User } from "@/types/auth.types";
 import { tokenRefreshEvents } from "@/utils/token-refresh-events";
+import { resetRefreshTokenFlag } from "@/config/api.config";
+import { AxiosError } from "axios";
 
 interface AuthContextType {
   user: User | null;
@@ -52,8 +54,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser(null);
         setIsAuthenticated(false);
       }
-    } catch {
+    } catch (error) {
       // Error refreshing user data - user will be logged out
+      // Don't log 401 errors as they're expected when user is not authenticated
+      const axiosError = error as AxiosError;
+      if (axiosError?.response?.status !== 401) {
+        // eslint-disable-next-line no-console
+        console.error("Error refreshing user data:", error);
+      }
       setUser(null);
       setIsAuthenticated(false);
     }
@@ -94,6 +102,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (loginResponse.success && loginResponse.data) {
         setUser(loginResponse.data);
         setIsAuthenticated(true);
+        // Reset the refresh token flag on successful login
+        resetRefreshTokenFlag();
         return loginResponse.data;
       } else {
         throw new Error(

@@ -41,8 +41,12 @@ const listBuckets = async () => {
         const { data } = await api.get("/aws/buckets");
         return {success: true, buckets: data.buckets};
     } catch (error) {
-        console.log(error);
         const axError = error as AxiosError<{detail: string}>;
+        // Don't log 401 errors to console to prevent confusion
+        if (axError?.response?.status !== 401) {
+            // eslint-disable-next-line no-console
+            console.log(error);
+        }
         toast.error(axError.response?.data?.detail || "Error listing buckets");
         return {success: false, buckets: []};
     }
@@ -53,8 +57,15 @@ const getBucketFiles = async (bucketName: string) => {
         const { data } = await api.get(`/aws/buckets/${bucketName}/files`);
         return {success: true, files: data.files};
     } catch (error) {
-        console.error(error);
         const axError = error as AxiosError<{detail: string}>;
+        // Don't log 401 errors to console to prevent confusion
+        if (axError?.response?.status !== 401) {
+            // Don't log 401 errors to console to prevent confusion
+        if (axError?.response?.status !== 401) {
+            // eslint-disable-next-line no-console
+            console.error(error);
+        }
+        }
         toast.error(axError.response?.data?.detail || "Error listing files");
         return {success: false, files: []};
     }
@@ -85,8 +96,12 @@ const uploadFile = async (bucketName: string, file: File) => {
         toast.error("Unknown upload error");
         return {success: false, error: 'Unknown error'};
     } catch (error) {
-        console.error(error);
         const axError = error as AxiosError<{detail: string}>;
+        // Don't log 401 errors to console to prevent confusion
+        if (axError?.response?.status !== 401) {
+            // eslint-disable-next-line no-console
+            console.error(error);
+        }
         toast.error(axError.response?.data?.detail || "Error uploading file");
         return {success: false, error};
     }
@@ -97,8 +112,12 @@ const createBucket = async (bucketName: string) => {
         const { data } = await api.post(`/aws/buckets/${bucketName}`, {});
         return {success: true, data};
     } catch (error) {
-        console.error(error);
         const axError = error as AxiosError<{detail: string}>;
+        // Don't log 401 errors to console to prevent confusion
+        if (axError?.response?.status !== 401) {
+            // eslint-disable-next-line no-console
+            console.error(error);
+        }
         toast.error(axError.response?.data?.detail || "Error creating bucket");
         return {success: false};
     }
@@ -109,8 +128,12 @@ const deleteBucket = async (bucketName: string) => {
         const { data } = await api.delete(`/aws/buckets/${bucketName}`);
         return {success: true, data};
     } catch (error) {
-        console.error(error);
         const axError = error as AxiosError<{detail: string}>;
+        // Don't log 401 errors to console to prevent confusion
+        if (axError?.response?.status !== 401) {
+            // eslint-disable-next-line no-console
+            console.error(error);
+        }
         toast.error(axError.response?.data?.detail || "Error deleting bucket");
         return {success: false, error};
     }
@@ -121,20 +144,28 @@ const getBucketInfo = async (bucketName: string) => {
         const { data } = await api.get(`/aws/buckets/${bucketName}/info`);
         return {success: true, data};
     } catch (error) {
-        console.error(error);
         const axError = error as AxiosError<{detail: string}>;
+        // Don't log 401 errors to console to prevent confusion
+        if (axError?.response?.status !== 401) {
+            // eslint-disable-next-line no-console
+            console.error(error);
+        }
         toast.error(axError.response?.data?.detail || "Error getting bucket info");
         return {success: false, error};
     }
 }
 
-const updateBucketConfig = async (bucketName: string, payload: any) => {
+const updateBucketConfig = async (bucketName: string, payload: Record<string, unknown>) => {
     try {
         const { data } = await api.put(`/aws/buckets/${bucketName}/config`, payload);
         return {success: true, data};
     } catch (error) {
-        console.error(error);
         const axError = error as AxiosError<{detail: string}>;
+        // Don't log 401 errors to console to prevent confusion
+        if (axError?.response?.status !== 401) {
+            // eslint-disable-next-line no-console
+            console.error(error);
+        }
         toast.error(axError.response?.data?.detail || "Error updating bucket config");
         return {success: false, error};
     }
@@ -146,8 +177,12 @@ const downloadFileFromBucket = async (bucketName: string, objectKey: string) => 
         await downloadBlobFromUrl(url, objectKey);
         return {success: true};
     } catch (error) {
-        console.error(error);
         const axError = error as AxiosError<{detail: string}>;
+        // Don't log 401 errors to console to prevent confusion
+        if (axError?.response?.status !== 401) {
+            // eslint-disable-next-line no-console
+            console.error(error);
+        }
         toast.error(axError.response?.data?.detail || "Error downloading file");
         return {success: false, error};
     }
@@ -158,8 +193,12 @@ const deleteFileFromBucket = async (bucketName: string, objectKey: string) => {
         const { data } = await api.delete(`/aws/buckets/${bucketName}/files/${objectKey}`);
         return {success: true, data};
     } catch (error) {
-        console.error(error);
         const axError = error as AxiosError<{detail: string}>;
+        // Don't log 401 errors to console to prevent confusion
+        if (axError?.response?.status !== 401) {
+            // eslint-disable-next-line no-console
+            console.error(error);
+        }
         return {success: false, error:axError.response?.data?.detail || "Error deleting file"};
     }
 }

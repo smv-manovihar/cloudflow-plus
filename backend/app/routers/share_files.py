@@ -3,15 +3,16 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, asc
 from datetime import datetime, timezone
 import uuid
 from botocore.exceptions import ClientError
 import io
 import base64
 import qrcode
+from urllib.parse import unquote
 
-from app.core.config import FRONTEND_URL
+from app.core.config import FRONTEND_URL, BUCKET_NAME
 from app.services.s3_service import aws_s3_client
 from app.hashing import Hash
 from app.database import get_db
@@ -22,12 +23,14 @@ from app.models import SharedLink, User
 # Pydantic Models
 # ============================================================================
 
+
 class CreateSharedLinkIn(BaseModel):
     bucket: str
     object_key: str
     password: Optional[str] = None
     expires_at: Optional[datetime] = None
     enabled: Optional[bool] = True
+
 
 class SharedLinkOut(BaseModel):
     id: uuid.UUID
@@ -43,20 +46,36 @@ class SharedLinkOut(BaseModel):
     qr_code: Optional[str]
     user_id: Optional[int]
 
+
+class SharedLinkListItemOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    bucket: str
+    size_bytes: Optional[int]
+    expires_at: Optional[datetime]
+    updated_at: datetime
+    created_at: datetime
+    enabled: bool
+    user_id: Optional[int]
+
+
 class SharedLinkListOut(BaseModel):
-    items: List[SharedLinkOut]
+    items: List[SharedLinkListItemOut]
     total: int
     page: int
     page_size: int
+
 
 class UpdateSharedLinkIn(BaseModel):
     enabled: Optional[bool] = None
     expires_at: Optional[datetime] = None
     password: Optional[str] = None
 
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
 
 def generate_presigned_url(bucket: str, key: str, expires_seconds: int = 60) -> str:
     """Generate a presigned URL for S3 object access."""
@@ -70,6 +89,7 @@ def generate_presigned_url(bucket: str, key: str, expires_seconds: int = 60) -> 
     except ClientError as exc:
         raise HTTPException(status_code=502, detail="Error generating presigned URL")
 
+
 # ============================================================================
 # Router
 # ============================================================================
@@ -80,6 +100,7 @@ router = APIRouter(prefix="/share", tags=["Share Files"])
 # Endpoints
 # ============================================================================
 
+
 @router.post(
     "/create", response_model=SharedLinkOut, status_code=status.HTTP_201_CREATED
 )
@@ -89,6 +110,9 @@ def create_shared_link(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new shared link for an S3 object."""
+    # Decode object_key if URL-encoded
+    object_key = unquote(payload.object_key)
+
     # Ensure expires_at is timezone-aware
     expires_at = payload.expires_at
     if expires_at and expires_at.tzinfo is None:
@@ -102,7 +126,7 @@ def create_shared_link(
 
     # Fetch object metadata to get size
     try:
-        head = aws_s3_client.head_object(Bucket=payload.bucket, Key=payload.object_key)
+        head = aws_s3_client.head_object(Bucket=BUCKET_NAME, Key=object_key)
         size_bytes = head.get("ContentLength")
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
@@ -112,7 +136,7 @@ def create_shared_link(
 
     # Generate new UUID
     new_id = str(uuid.uuid4())
-    name = payload.object_key.split("/")[-1]
+    name = object_key.split("/")[-1]
 
     # Hash password if provided
     hashed_password = None
@@ -136,7 +160,7 @@ def create_shared_link(
         id=new_id,
         bucket=payload.bucket,
         name=name,
-        object_key=payload.object_key,
+        object_key=object_key,
         size_bytes=size_bytes,
         password=hashed_password,
         expires_at=expires_at,
@@ -163,6 +187,7 @@ def create_shared_link(
         qr_code=link.qr_code,
         user_id=link.user_id,
     )
+
 
 @router.get("/{link_id}/download")
 def get_download_link(
@@ -207,6 +232,7 @@ def get_download_link(
 
     return {"url": presigned, "expires_in": short_lived_seconds}
 
+
 @router.get("/{link_id}/qr")
 def generate_qr(
     link_id: str,
@@ -236,6 +262,7 @@ def generate_qr(
     # Decode the base64 string and return the image
     image_bytes = base64.b64decode(link.qr_code)
     return StreamingResponse(io.BytesIO(image_bytes), media_type="image/png")
+
 
 @router.get("/me/{link_id}", response_model=SharedLinkOut)
 def get_link_info_for_owner(
@@ -274,6 +301,7 @@ def get_link_info_for_owner(
         user_id=link.user_id,
     )
 
+
 @router.get("/me", response_model=SharedLinkListOut)
 def list_my_shared_links(
     page: int = Query(1, ge=1),
@@ -308,7 +336,7 @@ def list_my_shared_links(
 
     # Get paginated items
     items = (
-        query.order_by(SharedLink.expires_at.asc().nullsfirst())
+        query.order_by(asc(SharedLink.expires_at).nulls_first())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -316,26 +344,24 @@ def list_my_shared_links(
 
     # Convert to output models
     out_items = [
-        SharedLinkOut(
-            id=uuid.UUID(item.id),
-            name=item.name,
-            bucket=item.bucket,
-            object_key=item.object_key,
-            size_bytes=item.size_bytes,
-            expires_at=item.expires_at,
-            updated_at=item.updated_at,
-            created_at=item.created_at,
-            enabled=item.enabled,
-            has_password=bool(item.password),
-            qr_code=item.qr_code,
-            user_id=item.user_id,
-        )
+        {
+            "id": uuid.UUID(item.id),
+            "name": item.name,
+            "bucket": item.bucket,
+            "size_bytes": item.size_bytes,
+            "expires_at": item.expires_at,
+            "updated_at": item.updated_at,
+            "created_at": item.created_at,
+            "enabled": item.enabled,
+            "user_id": item.user_id,
+        }
         for item in items
     ]
 
     return SharedLinkListOut(
         items=out_items, total=total, page=page, page_size=page_size
     )
+
 
 @router.get("/{link_id}/public")
 def get_file_info(link_id: str, db: Session = Depends(get_db)):
@@ -368,6 +394,7 @@ def get_file_info(link_id: str, db: Session = Depends(get_db)):
     }
 
     return info
+
 
 @router.put("/{link_id}", response_model=SharedLinkOut)
 def update_shared_link(
@@ -440,6 +467,7 @@ def update_shared_link(
         qr_code=link.qr_code,
         user_id=link.user_id,
     )
+
 
 @router.delete("/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_shared_link(
