@@ -1,17 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-
+from app.services.s3_service import minio_s3_client, aws_s3_client
 from fastapi.security import OAuth2PasswordRequestForm
 
-from .. import models, schemas, hashing
-from ..database import get_db
-from ..oauth2 import (
+from app import models, schemas, hashing
+from app.database import get_db
+from app.oauth2 import (
     create_access_token,
     create_refresh_token,
     verify_token,
     get_current_user,
 )
+from app.core.config import BUCKET_NAME
+from app.services.s3_service import minio_s3_client
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -119,7 +121,7 @@ def refresh_token(request: Request):
 
 @router.put("/info", response_model=schemas.ShowUser)
 def update_user_info(
-    user: schemas.User,
+    user: schemas.UpdateUser,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -166,3 +168,77 @@ def logout():
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
     return response
+
+
+def _delete_s3_prefix(s3_client, bucket_name: str, prefix: str):
+    """
+    Deletes all objects under a given prefix from an S3 bucket.
+    This function is generic and works with any boto3-compatible client.
+    """
+    try:
+        paginator = s3_client.get_paginator("list_objects_v2")
+        pages = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
+
+        objects_to_delete = [
+            {"Key": obj["Key"]} for page in pages for obj in page.get("Contents", [])
+        ]
+
+        if not objects_to_delete:
+            print(
+                f"No objects to delete in bucket '{bucket_name}' with prefix '{prefix}'."
+            )
+            return
+
+        for i in range(0, len(objects_to_delete), 1000):
+            batch = objects_to_delete[i : i + 1000]
+            s3_client.delete_objects(Bucket=bucket_name, Delete={"Objects": batch})
+        print(f"Successfully deleted prefix '{prefix}' from bucket '{bucket_name}'.")
+
+    except Exception as e:
+        # Use a proper logger in production
+        print(f"Error deleting prefix '{prefix}' from bucket '{bucket_name}': {e}")
+
+
+# 2. Updated background task to orchestrate the cleanup
+def cleanup_user_storage(user_id: int):
+    """
+    This background task cleans up all storage associated with a user
+    from every configured storage provider (MinIO, AWS S3, etc.).
+    """
+    user_prefix = f"{user_id}/"
+    print(f"Starting background cleanup for user: {user_id}")
+
+    _delete_s3_prefix(
+        s3_client=minio_s3_client, bucket_name=BUCKET_NAME, prefix=user_prefix
+    )
+
+    _delete_s3_prefix(
+        s3_client=aws_s3_client,
+        bucket_name=BUCKET_NAME,  # Use the specific AWS bucket name
+        prefix=user_prefix,
+    )
+
+    print(f"Finished background cleanup for user: {user_id}")
+
+
+@router.delete("/delete-account")
+def delete_account(
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        user_id_for_task = current_user.id
+        db.delete(current_user)
+        db.commit()
+
+        # Schedule the single, comprehensive cleanup task
+        background_tasks.add_task(cleanup_user_storage, user_id=user_id_for_task)
+
+        return {
+            "message": "Account deletion initiated. Your data will be erased shortly."
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error deleting account: {str(e)}")

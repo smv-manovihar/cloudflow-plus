@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/auth.context"; // Adjust path as needed
+import { updateUserInfo, changePassword, deleteAccount } from "@/api/auth.api";
+import { UpdateUserData, ChangePasswordData } from "@/types/auth.types";
 import {
   Card,
   CardContent,
@@ -23,10 +25,11 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
+import { LogOut, Trash2 } from "lucide-react";
 
 export default function Settings() {
   const router = useRouter();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, refreshUser, logout } = useAuth();
   const [profileData, setProfileData] = useState({
     fullName: "",
     email: "",
@@ -66,13 +69,17 @@ export default function Settings() {
 
     setIsSaving(true);
     try {
-      // TODO: Implement updateUser API call here, e.g., await updateUser(profileData);
-      // For now, simulate with delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      toast.success("Profile updated successfully");
-
-      // Optionally, refetch user or update context
-      // e.g., const updatedUser = await verifyUser(); setUser(updatedUser.data);
+      const updateData: UpdateUserData = {
+        name: profileData.fullName,
+        email: profileData.email,
+      };
+      const response = await updateUserInfo(updateData);
+      if (response.success) {
+        toast.success("Profile updated successfully");
+        await refreshUser(); // Refresh user data in context
+      } else {
+        toast.error(response.error || "Failed to update profile");
+      }
     } catch (error) {
       toast.error("Failed to update profile. Please try again.");
       console.error("Profile update error:", error);
@@ -99,11 +106,17 @@ export default function Settings() {
 
     setIsSaving(true);
     try {
-      // TODO: Implement changePassword API call here
-      // e.g., await changePassword(passwordData);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      toast.success("Password changed successfully");
-      setPasswordData({ current: "", new: "", confirm: "" });
+      const changeData: ChangePasswordData = {
+        old_password: passwordData.current,
+        new_password: passwordData.new,
+      };
+      const response = await changePassword(changeData);
+      if (response.success) {
+        toast.success("Password changed successfully");
+        setPasswordData({ current: "", new: "", confirm: "" });
+      } else {
+        toast.error(response.error || "Failed to change password");
+      }
     } catch (error) {
       toast.error("Failed to change password. Please try again.");
       console.error("Password change error:", error);
@@ -120,13 +133,16 @@ export default function Settings() {
 
     setIsSaving(true);
     try {
-      // TODO: Implement deleteAccount API call here
-      // e.g., await deleteAccount(); await logout();
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      toast.success("Account deleted");
-      router.push("/login");
+      const response = await deleteAccount();
+      if (response.success) {
+        toast.success("Account deleted successfully");
+        router.push("/login");
+      } else {
+        toast.error(response.error || "Failed to delete account");
+      }
     } catch (error) {
       toast.error("Failed to delete account. Please try again.");
+      console.error("Account deletion error:", error);
     } finally {
       setIsSaving(false);
       setShowDeleteAlert(false);
@@ -262,7 +278,38 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card className="border-destructive/50 animate-in fade-in slide-in-from-top-2 duration-500 delay-200 md:col-span-2">
+          <Card className="animate-in fade-in slide-in-from-top-2 duration-500 delay-200 md:col-span-2">
+            <CardHeader>
+              <CardTitle>Account Actions</CardTitle>
+              <CardDescription>Manage your account</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <p className="text-sm text-muted-foreground max-w-xl">
+                  Sign out of your account.
+                </p>
+                <div className="flex-shrink-0">
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await logout();
+                        router.push("/login");
+                      } catch (error) {
+                        console.error("Logout error:", error);
+                      }
+                    }}
+                    className="text-orange-600 hover:text-orange-700 border-orange-300 hover:bg-orange-50 w-full sm:w-auto"
+                  >
+                    <LogOut />
+                    Logout
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-destructive/50 animate-in fade-in slide-in-from-top-2 duration-500 delay-300 md:col-span-2">
             <CardHeader>
               <CardTitle className="text-destructive">Danger Zone</CardTitle>
               <CardDescription>Irreversible actions</CardDescription>
@@ -278,6 +325,7 @@ export default function Settings() {
                     onClick={() => setShowDeleteAlert(true)}
                     className="text-destructive hover:text-destructive border-destructive/50 hover:bg-destructive/10 w-full sm:w-auto"
                   >
+                    <Trash2 />
                     Delete Account
                   </Button>
                 </div>

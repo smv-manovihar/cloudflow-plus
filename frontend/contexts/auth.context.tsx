@@ -24,6 +24,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (data: LoginData) => Promise<User>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -34,6 +35,9 @@ const AuthContext = createContext<AuthContextType>({
     throw new Error("AuthContext not initialized");
   },
   logout: async () => {
+    throw new Error("AuthContext not initialized");
+  },
+  refreshUser: async () => {
     throw new Error("AuthContext not initialized");
   },
 });
@@ -162,6 +166,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     isLoading,
     login,
     logout,
+    refreshUser: refreshUserData,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

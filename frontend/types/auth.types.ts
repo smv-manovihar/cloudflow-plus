@@ -20,6 +20,16 @@ export interface RegisterData {
   password: string;
 }
 
+export interface UpdateUserData {
+  name: string;
+  email: string;
+}
+
+export interface ChangePasswordData {
+  old_password: string;
+  new_password: string;
+}
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   message?: string;
