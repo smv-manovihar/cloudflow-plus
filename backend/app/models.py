@@ -25,9 +25,16 @@ class SharedLink(Base):
     password = Column(String)
     enabled = Column(Boolean, nullable=False)
     qr_code = Column(String)
-    updated_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
     expires_at = Column(DateTime(timezone=True))
+
     user = relationship("User", back_populates="shared_links")
 
     def __repr__(self):

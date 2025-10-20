@@ -18,6 +18,7 @@ import { handleApiError } from "@/utils/helpers";
 // ---------------------------
 export const listFiles = async (
   prefix?: string,
+  q?:string,
   cursor?: string | null,
   pageSize = 12
 ): Promise<ListFilesResponse | ListFilesErrorResponse> => {
@@ -25,6 +26,7 @@ export const listFiles = async (
     const { data } = await api.get("/files", {
       params: {
         page_size: pageSize,
+        q: q || undefined,
         prefix: prefix || undefined,
         cursor: cursor || undefined,
       },

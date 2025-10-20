@@ -66,6 +66,29 @@ export function Sidebar({
     }
   };
 
+  // Helper function to determine if a route is active
+  const getIsActive = (item: (typeof navItems)[0]) => {
+    if (item.href === "/") {
+      // Home is active if:
+      // 1. Exactly at "/" OR
+      // 2. At a root-level dynamic route (e.g., "/123") that doesn't match other nav items
+      const otherRoutes = navItems
+        .filter((navItem) => navItem.href !== "/")
+        .map((navItem) => navItem.href);
+
+      const matchesOtherRoute = otherRoutes.some((route) =>
+        pathname.startsWith(route)
+      );
+
+      return (
+        pathname === "/" ||
+        (!matchesOtherRoute && pathname.split("/").length === 2)
+      );
+    } else {
+      return pathname.startsWith(item.href);
+    }
+  };
+
   const SkeletonLine = ({ className = "" }: { className?: string }) => (
     <div
       className={cn(
@@ -108,10 +131,7 @@ export function Sidebar({
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive =
-                item.href === "/"
-                  ? pathname === "/"
-                  : pathname.startsWith(item.href);
+              const isActive = getIsActive(item);
 
               return (
                 <div
@@ -202,10 +222,7 @@ export function Sidebar({
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
+          const isActive = getIsActive(item);
 
           return (
             <div

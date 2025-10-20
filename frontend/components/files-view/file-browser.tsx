@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { deleteFile, downloadFile, listFiles } from "@/api/files.api";
+import { createSharedLink, getSharedLinkId } from "@/api/share.api";
+import ShareDialog from "./browser-share-file-dialog";
 import {
   FileItem,
   PageCache,
@@ -13,7 +15,7 @@ import {
   UploadFilesResponse,
 } from "@/types/files.types";
 import { syncFile, syncBucketAsyncFile, syncBucketAsync } from "@/api/sync.api";
-import FileList from "./files-list";
+import FileList from "./file-list";
 import PaginationControls from "../layout/pagination-controls";
 import { Button } from "../ui/button";
 import {
@@ -44,6 +46,7 @@ export default function FileBrowser() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const prefix = searchParams.get("prefix") || "";
+  const q = searchParams.get("q") || "";
   const { setBreadcrumbs } = useBreadcrumbs();
 
   const [currentPageData, setCurrentPageData] = useState<FileItem[]>([]);
@@ -53,7 +56,7 @@ export default function FileBrowser() {
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(q);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
   const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false);
@@ -63,7 +66,10 @@ export default function FileBrowser() {
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [deleteType, setDeleteType] = useState<"local" | "aws">("local");
   const [isDeleting, setIsDeleting] = useState(false);
-
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [shareFile, setShareFile] = useState<FileItem | null>(null);
+  const [shareExpires, setShareExpires] = useState("");
+  const [sharePassword, setSharePassword] = useState("");
   const relativeName = useCallback(
     (key: string) => {
       const base = prefix || "";
@@ -113,7 +119,7 @@ export default function FileBrowser() {
     ): Promise<PageCache | null> => {
       setIsLoading(true);
       try {
-        const data = await listFiles(prefix, cursor, pageSize);
+        const data = await listFiles(prefix, q, cursor, pageSize);
         if (!data.success) {
           toast.error(data.error || "Failed to load files from server", {
             duration: 3000,
@@ -140,9 +146,10 @@ export default function FileBrowser() {
         setIsLoading(false);
       }
     },
-    [prefix, transformFiles]
+    [prefix, q, transformFiles]
   );
 
+  // update the initialize effect to also watch `q` and to sync the search box
   useEffect(() => {
     let mounted = true;
     const initialize = async () => {
@@ -157,11 +164,11 @@ export default function FileBrowser() {
       }
     };
     initialize();
-    setSearchQuery("");
+    setSearchQuery(q);
     return () => {
       mounted = false;
     };
-  }, [prefix, loadFiles]);
+  }, [prefix, q, loadFiles]);
 
   // Add this useEffect to handle breadcrumb updates when prefix changes
   useEffect(() => {
@@ -324,6 +331,87 @@ export default function FileBrowser() {
     setShowDeleteDialog(true);
   };
 
+  const handleShare = async (fileName: string, fileKey: string) => {
+    const file = currentPageData.find((f) => f.key === fileKey);
+    if (!file) {
+      toast.error(`File ${fileName} not found`, {
+        duration: 3000,
+      });
+      return;
+    }
+
+    if (file.isShared) {
+      router.push(`/shared/${file.sharedLinkId}/view`);
+      return;
+    }
+    // Always check for existing shared link via API
+    const linkResult = await getSharedLinkId(file.key);
+
+    if (linkResult.success && linkResult.linkId) {
+      // Update the file state with the shared link ID
+      setCurrentPageData((prev) =>
+        prev.map((f) =>
+          f.key === file.key
+            ? { ...f, sharedLinkId: linkResult.linkId, isShared: true }
+            : f
+        )
+      );
+
+      // Navigate to the shared view
+      router.push(`/shared/${linkResult.linkId}/view`);
+      return;
+    }
+
+    // If no existing link or API failed, open the share dialog to create a new link
+    setShareFile(file);
+    setShareExpires("");
+    setSharePassword("");
+    setShowShareDialog(true);
+  };
+
+  const handleCreateShareLink = async () => {
+    if (!shareFile || !shareFile.bucket) return;
+
+    const toastId = toast.loading("Creating share link...");
+
+    const payload = {
+      bucket: shareFile.bucket,
+      object_key: shareFile.key,
+      password: sharePassword || undefined,
+      expires_at: shareExpires ? new Date(shareExpires) : undefined,
+    };
+
+    const result = await createSharedLink(payload);
+
+    if (result.success) {
+      // Copy the share link to clipboard
+      const shareUrl = `${window.location.origin}/shared/${result.result.id}/download`;
+      await navigator.clipboard.writeText(shareUrl);
+
+      toast.success("Share link created and copied to clipboard!", {
+        id: toastId,
+        duration: 3000,
+      });
+
+      // Update the file's shared status
+      setCurrentPageData((prev) =>
+        prev.map((f) =>
+          f.key === shareFile.key
+            ? { ...f, isShared: true, sharedLinkId: result.result.id }
+            : f
+        )
+      );
+      router.push(`/shared/${result.result.id}/view`);
+      setShowShareDialog(false);
+      setShareFile(null);
+    } else {
+      toast.error(result.error || "Failed to create share link", {
+        id: toastId,
+        duration: 3000,
+      });
+    }
+  };
+
   const handleDeleteConfirm = async () => {
     if (!selectedFile) return;
 
@@ -371,7 +459,14 @@ export default function FileBrowser() {
   };
 
   const handleFileClick = (fileName: string, fileKey: string) => {
-    router.push(`/${encodeURIComponent(fileKey)}`);
+    const current =
+      typeof window !== "undefined"
+        ? window.location.pathname +
+          window.location.search +
+          window.location.hash
+        : "/";
+    const from = encodeURIComponent(current);
+    router.push(`/${encodeURIComponent(fileKey)}?from=${from}`);
   };
 
   const handleRefresh = useCallback(async () => {
@@ -393,8 +488,23 @@ export default function FileBrowser() {
   }, [loadFiles]);
 
   const handleSearch = () => {
-    if (searchQuery.trim()) {
-      router.push(`/?prefix=${encodeURIComponent(searchQuery)}`);
+    const trimmed = searchQuery.trim();
+    if (trimmed) {
+      if (prefix) {
+        router.push(
+          `/?prefix=${encodeURIComponent(prefix)}&q=${encodeURIComponent(
+            trimmed
+          )}`
+        );
+      } else {
+        router.push(`/?q=${encodeURIComponent(trimmed)}`);
+      }
+    } else {
+      if (prefix) {
+        router.push(`/?prefix=${encodeURIComponent(prefix)}`);
+      } else {
+        router.push(`/`);
+      }
     }
   };
 
@@ -404,7 +514,6 @@ export default function FileBrowser() {
     parts.pop();
     const newPrefix = parts.length > 0 ? parts.join("/") + "/" : "";
     router.push(newPrefix ? `/?prefix=${encodeURIComponent(newPrefix)}` : "/");
-    // Remove the manual breadcrumb management as it's now handled by the useEffect
   };
 
   const handleNextPage = useCallback(async () => {
@@ -594,10 +703,7 @@ export default function FileBrowser() {
           onFileClick={handleFileClick}
           onFolderClick={handleFolderClick}
           onDownload={handleDownload}
-          onShare={(fileName, fileKey) => {
-            // TODO: Implement share functionality
-            toast.info("Share functionality coming soon");
-          }}
+          onShare={handleShare}
           onSyncFile={handleSyncFile}
           onDelete={handleDelete}
         />
@@ -626,6 +732,23 @@ export default function FileBrowser() {
         onDeleteTypeChange={setDeleteType}
         onDelete={handleDeleteConfirm}
       />
+
+      {shareFile && (
+        <ShareDialog
+          open={showShareDialog}
+          onOpenChange={(open) => {
+            setShowShareDialog(open);
+            if (!open) setShareFile(null);
+          }}
+          fileData={shareFile}
+          objectKey={shareFile.key}
+          expires={shareExpires}
+          password={sharePassword}
+          onExpiresChange={setShareExpires}
+          onPasswordChange={setSharePassword}
+          onCreateShareLink={handleCreateShareLink}
+        />
+      )}
 
       <Dialog
         open={showCreateFolderDialog}

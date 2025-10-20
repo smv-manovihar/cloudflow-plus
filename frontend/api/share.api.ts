@@ -295,6 +295,19 @@ export const updateSharedLink = async (
 };
 
 // ---------------------------
+// Get Shared Link ID by Object Key
+// ---------------------------
+
+export const getSharedLinkId = async (objectKey: string): Promise<{ success: true; linkId: string | null } | { success: false; error: string }> => {
+  try {
+    const { data } = await api.get(`/share/link/${encodeURIComponent(objectKey)}`);
+    return { success: true, linkId: data.link_id };
+  } catch (error) {
+    return handleApiError(error, "An unknown error occurred while getting the shared link ID.");
+  }
+};
+
+// ---------------------------
 // Delete Shared Link
 // ---------------------------
 

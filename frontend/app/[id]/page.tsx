@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import {
   Download,
   Share2,
@@ -30,7 +30,7 @@ import { syncBucketAsyncFile, syncFile } from "@/api/sync.api";
 import { createSharedLink } from "@/api/share.api";
 import { CreateSharedLinkPayload } from "@/types/share.types";
 import { formatFileSize } from "@/utils/helpers";
-import ShareDialog from "@/components/files-view/share-file-dialog";
+import ShareDialog from "@/components/files-view/file-share-file-dialog";
 import DeleteDialog from "@/components/files-view/file-delete-file-dialog";
 import PreviewDialog from "@/components/files-view/preview-dialog";
 
@@ -281,6 +281,7 @@ function StatusInfoCard({ fileData }: StatusInfoCardProps) {
 export default function FileDetailsPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const objectKey = params.id as string;
 
   const [isLoading, setIsLoading] = useState(true);
@@ -295,8 +296,35 @@ export default function FileDetailsPage() {
   const [expires, setExpires] = useState<string>("");
   const [password, setPassword] = useState<string>("");
 
-  // Fetch file info on mount and set breadcrumbs
-  // page.tsx (partial, showing only the changed useEffect)
+  // decode `from` param if present
+  const rawFrom = searchParams?.get("from");
+  const from = rawFrom ? decodeURIComponent(rawFrom) : null;
+
+  const getPrefixFromObjectKey = (key: string) => {
+    if (!key) return "";
+    const parts = key.split("/");
+    if (parts.length <= 1) return ""; // file at root
+    // If last segment is empty (objectKey ended with '/'), remove it first
+    if (parts[parts.length - 1] === "") parts.pop();
+    parts.pop(); // remove file name
+    return parts.length > 0 ? parts.join("/") + "/" : "";
+  };
+
+  const handleBack = () => {
+    if (from) {
+      router.push(from);
+      return;
+    }
+
+    const prefix = getPrefixFromObjectKey(objectKey);
+    if (prefix) {
+      router.push(`/?prefix=${encodeURIComponent(prefix)}`);
+    } else {
+      router.push("/");
+    }
+  };
+
+  // Fetch file info on mount
   useEffect(() => {
     const fetchFileInfo = async () => {
       if (!objectKey) {
@@ -366,24 +394,24 @@ export default function FileDetailsPage() {
   };
 
   const handleSync = async () => {
+    if (!fileData) return;
     setIsSyncPending(true);
 
     const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB in bytes
-    const isLargeFile = fileData!.sizeBytes > SIZE_THRESHOLD;
+    const isLargeFile = fileData.sizeBytes > SIZE_THRESHOLD;
 
     const toastId = toast.loading(
-      `${isLargeFile ? "Queuing" : "Syncing"} ${fileData!.name}...`
+      `${isLargeFile ? "Queuing" : "Syncing"} ${fileData.name}...`
     );
 
-    // Call appropriate sync method based on file size
     const res = isLargeFile
-      ? await syncBucketAsyncFile(fileData!.objectKey)
-      : await syncFile(fileData!.objectKey);
+      ? await syncBucketAsyncFile(fileData.objectKey)
+      : await syncFile(fileData.objectKey);
 
     if (res.success) {
       if (isLargeFile) {
         toast.success(
-          `${fileData!.name} queued for sync. This may take a few minutes.`,
+          `${fileData.name} queued for sync. This may take a few minutes.`,
           { id: toastId, duration: 4000 }
         );
         setFileData((prev) => {
@@ -395,7 +423,7 @@ export default function FileDetailsPage() {
           };
         });
       } else {
-        toast.success(`${fileData!.name} synced successfully`, {
+        toast.success(`${fileData.name} synced successfully`, {
           id: toastId,
           duration: 2000,
         });
@@ -425,10 +453,11 @@ export default function FileDetailsPage() {
   };
 
   const handleDownload = async () => {
-    const toastId = toast.loading(`Downloading ${fileData!.name}...`);
-    const res = await downloadFile(objectKey, fileData!.name);
+    if (!fileData) return;
+    const toastId = toast.loading(`Downloading ${fileData.name}...`);
+    const res = await downloadFile(objectKey, fileData.name);
     if (res.success) {
-      toast.success(`Downloaded ${fileData!.name}`, {
+      toast.success(`Downloaded ${fileData.name}`, {
         id: toastId,
         duration: 2000,
       });
@@ -438,16 +467,18 @@ export default function FileDetailsPage() {
   };
 
   const handleShare = () => {
-    if (fileData!.isShared && fileData!.sharedLinkId) {
-      router.push(`/shared/${fileData!.sharedLinkId}/view`);
+    if (!fileData) return;
+    if (fileData.isShared && fileData.sharedLinkId) {
+      router.push(`/shared/${fileData.sharedLinkId}/view`);
     } else {
       setShowShareDialog(true);
     }
   };
 
   const handleCreateShareLink = async () => {
+    if (!fileData) return;
     const payload: CreateSharedLinkPayload = {
-      bucket: fileData!.bucket,
+      bucket: fileData.bucket,
       object_key: objectKey,
       ...(expires && { expires_at: new Date(expires) }),
       ...(password && { password }),
@@ -466,9 +497,10 @@ export default function FileDetailsPage() {
   };
 
   const handleDelete = async () => {
+    if (!fileData) return;
     setIsDeleting(true);
     const sync = deleteType === "aws";
-    const toastId = toast.loading(`Deleting ${fileData!.name}...`);
+    const toastId = toast.loading(`Deleting ${fileData.name}...`);
     const response = await deleteFile(objectKey, sync);
     if ("success" in response && response.success) {
       toast.success(
@@ -477,7 +509,7 @@ export default function FileDetailsPage() {
       );
       setIsDeleting(false);
       setShowDeleteDialog(false);
-      router.back();
+      handleBack();
     } else {
       const apiError = response as DeleteFileErrorResponse;
       toast.error(apiError.error || "Delete failed", { id: toastId });
@@ -504,7 +536,7 @@ export default function FileDetailsPage() {
           <p className="text-muted-foreground mb-4">
             {error || "File not found"}
           </p>
-          <Button onClick={() => router.back()} variant="outline">
+          <Button onClick={handleBack} variant="outline">
             Go Back
           </Button>
         </div>
@@ -518,7 +550,7 @@ export default function FileDetailsPage() {
         fileName={fileData.name}
         fileData={fileData}
         isSyncPending={isSyncPending}
-        onBack={() => router.back()}
+        onBack={handleBack}
         onSync={handleSync}
         onDownload={handleDownload}
         onPreview={() => setShowPreview(true)}

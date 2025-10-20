@@ -177,7 +177,7 @@ export function FilePreview({
           const response = await api.get(`/files/${objectKey}`, {
             responseType: "text",
           });
-          const content = response.data.substring(0, 5000);
+          const content = response.data;
           setPreviewContent(content);
           previewCache.set(cacheKey, { src: null, content, timestamp: now });
         } else {
@@ -259,12 +259,17 @@ export function FilePreview({
 
   if (error) {
     return (
-      <div className={`flex flex-col flex-1 overflow-hidden ${className}`}>
-        <div className="flex flex-col items-center justify-center flex-1 max-h-[60vh] sm:max-h-[50vh] text-muted-foreground">
-          <File className="h-8 w-8 sm:h-10 sm:w-10 mb-2 sm:mb-3" />
-          <p className="text-center text-xs sm:text-sm px-4">{error}</p>
-        </div>
-        <div className="flex justify-center mt-2 sm:mt-4 border-t pt-2 sm:pt-4">
+      <div
+        className={`flex flex-col items-center justify-center overflow-hidden ${className} text-muted-foreground bg-muted rounded-lg`}
+        style={{
+          aspectRatio: "1 / 1",
+          maxWidth: "60vh",
+          maxHeight: "60vh",
+        }}
+      >
+        <File className="h-8 w-8 sm:h-10 sm:w-10 mb-2 sm:mb-3" />
+        <p className="text-center text-xs sm:text-sm px-4">{error}</p>
+        <div className="flex justify-center mt-2 sm:mt-4 border-t pt-2 sm:pt-4 w-full">
           <p className="text-xs sm:text-sm font-medium text-foreground text-center">
             {fileName}
           </p>
@@ -296,7 +301,14 @@ export function FilePreview({
             </video>
           </div>
         ) : isPdf ? (
-          <div className="flex flex-col items-center justify-center flex-1 max-h-[60vh] sm:max-h-[50vh] text-muted-foreground animate-in fade-in duration-500">
+          <div
+            className="flex flex-col items-center justify-center flex-1 text-muted-foreground animate-in fade-in duration-500 rounded-lg bg-muted"
+            style={{
+              aspectRatio: "1 / 1",
+              maxWidth: "60vh",
+              maxHeight: "60vh",
+            }}
+          >
             <FileJson className="h-8 w-8 sm:h-10 sm:w-10 mb-2 sm:mb-3 text-red-500" />
             <p className="text-center text-xs sm:text-sm px-4 mb-2 sm:mb-3">
               PDF preview is not available in the dialog.
@@ -310,14 +322,7 @@ export function FilePreview({
                   Open in New Tab
                 </button>
               )}
-              {previewSrc && (
-                <button
-                  onClick={() => downloadFile(previewSrc)}
-                  className="inline-flex items-center justify-center px-3 py-1 text-xs sm:text-sm font-medium text-primary-foreground bg-secondary rounded-md hover:bg-secondary/90 transition-colors"
-                >
-                  Download
-                </button>
-              )}
+              {/* Download button removed for PDF */}
             </div>
           </div>
         ) : isText && previewContent ? (
@@ -325,9 +330,6 @@ export function FilePreview({
             <div className="max-h-[50vh] sm:max-h-[45vh] overflow-auto pr-2">
               <pre className="text-xs sm:text-sm font-mono text-foreground whitespace-pre-wrap break-words">
                 {previewContent}
-                {previewContent &&
-                  previewContent.length >= 5000 &&
-                  `\n\n... (truncated for preview)`}
               </pre>
             </div>
           </div>

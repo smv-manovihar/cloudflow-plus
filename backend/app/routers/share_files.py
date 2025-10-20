@@ -19,6 +19,7 @@ from app.database import get_db
 from app.oauth2 import get_current_user
 from app.models import SharedLink, User
 
+
 # ============================================================================
 # Pydantic Models
 # ============================================================================
@@ -45,7 +46,7 @@ class SharedLinkOut(BaseModel):
     enabled: bool
     has_password: bool
     qr_code: Optional[str]
-    user_id: Optional[str]  # Changed to string for UUID
+    user_id: Optional[str]
 
 
 class SharedLinkListItemOut(BaseModel):
@@ -57,7 +58,7 @@ class SharedLinkListItemOut(BaseModel):
     updated_at: datetime
     created_at: datetime
     enabled: bool
-    user_id: Optional[str]  # Changed to string for UUID
+    user_id: Optional[str]
 
 
 class SharedLinkListOut(BaseModel):
@@ -127,6 +128,7 @@ def generate_presigned_url(bucket: str, key: str, expires_seconds: int = 60) -> 
 
 router = APIRouter(prefix="/share", tags=["Share Files"])
 
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -141,7 +143,6 @@ def create_shared_link(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new shared link for an S3 object under the user's prefix."""
-    # Validate user_id as UUID
     validate_uuid(current_user.id)
 
     # Decode object_key and prepend user_id
@@ -153,6 +154,8 @@ def create_shared_link(
     if expires_at:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
+        else:
+            expires_at = expires_at.astimezone(timezone.utc)
         if expires_at < datetime.now(timezone.utc):
             raise HTTPException(
                 status_code=400, detail="Expiration time must be in the future (UTC)"
@@ -247,6 +250,8 @@ def get_download_link(
     if link.expires_at:
         if link.expires_at.tzinfo is None:
             link.expires_at = link.expires_at.replace(tzinfo=timezone.utc)
+        else:
+            link.expires_at = link.expires_at.astimezone(timezone.utc)
         if now > link.expires_at:
             raise HTTPException(status_code=410, detail="Link expired")
 
@@ -271,7 +276,6 @@ def generate_qr(
     current_user: User = Depends(get_current_user),
 ):
     """Retrieve and serve the QR code for a shared link."""
-    # Validate user_id as UUID
     validate_uuid(current_user.id)
 
     try:
@@ -300,7 +304,6 @@ def get_link_info_for_owner(
     current_user: User = Depends(get_current_user),
 ):
     """Get detailed information about a shared link (owner only)."""
-    # Validate user_id as UUID
     validate_uuid(current_user.id)
 
     try:
@@ -349,7 +352,6 @@ def list_my_shared_links(
     current_user: User = Depends(get_current_user),
 ):
     """List all shared links created by the current user."""
-    # Validate user_id as UUID
     validate_uuid(current_user.id)
 
     query = db.query(SharedLink).filter(SharedLink.user_id == current_user.id)
@@ -415,6 +417,8 @@ def get_file_info(link_id: str, db: Session = Depends(get_db)):
     if link.expires_at:
         if link.expires_at.tzinfo is None:
             link.expires_at = link.expires_at.replace(tzinfo=timezone.utc)
+        else:
+            link.expires_at = link.expires_at.astimezone(timezone.utc)
         if now > link.expires_at:
             raise HTTPException(status_code=410, detail="Link expired")
 
@@ -436,7 +440,6 @@ def update_shared_link(
     current_user: User = Depends(get_current_user),
 ):
     """Update an existing shared link with explicit boolean flags."""
-    # Validate user_id as UUID
     validate_uuid(current_user.id)
 
     try:
@@ -464,6 +467,8 @@ def update_shared_link(
         expires_at = payload.expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
+        else:
+            expires_at = expires_at.astimezone(timezone.utc)
         if expires_at <= datetime.now(timezone.utc):
             raise HTTPException(
                 status_code=400, detail="Expiration time must be in the future (UTC)"
@@ -488,8 +493,8 @@ def update_shared_link(
         link.password = Hash.encrypt(password_value)
         has_changes = True
 
+    # SQLAlchemy's onupdate parameter handles this automatically
     if has_changes:
-        link.updated_at = datetime.now(timezone.utc)
         db.add(link)
         db.commit()
         db.refresh(link)
@@ -517,6 +522,37 @@ def update_shared_link(
     )
 
 
+@router.get("/link/{object_key}")
+def get_shared_link_id(
+    object_key: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the shared link ID for a given object key if it exists."""
+    validate_uuid(current_user.id)
+
+    # Decode object_key and prepend user_id
+    decoded_object_key = unquote(object_key)
+    user_object_key = f"{current_user.id}/{decoded_object_key}"
+
+    # Find the most recent enabled shared link for this object
+    link = (
+        db.query(SharedLink)
+        .filter(
+            SharedLink.user_id == current_user.id,
+            SharedLink.object_key == user_object_key,
+            SharedLink.enabled == True,
+        )
+        .order_by(SharedLink.created_at.desc())
+        .first()
+    )
+
+    if not link:
+        return {"link_id": None}
+
+    return {"link_id": link.id}
+
+
 @router.delete("/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_shared_link(
     link_id: str,
@@ -524,7 +560,6 @@ def delete_shared_link(
     current_user: User = Depends(get_current_user),
 ):
     """Delete a shared link."""
-    # Validate user_id as UUID
     validate_uuid(current_user.id)
 
     try:
