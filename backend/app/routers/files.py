@@ -17,6 +17,7 @@ import os
 from urllib.parse import unquote
 import uuid
 import logging
+from datetime import datetime, timezone
 
 from app.services.s3_service import minio_s3_client, aws_s3_client
 from app.database import get_db
@@ -31,9 +32,34 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/files", tags=["Files"])
 
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
+
+def to_utc_iso(dt: datetime) -> str:
+    """
+    Convert datetime to UTC ISO 8601 format with 'Z' suffix.
+
+    Args:
+        dt: datetime object (can be timezone-aware or naive)
+
+    Returns:
+        ISO 8601 string with 'Z' suffix (e.g., '2025-10-20T18:39:00Z')
+    """
+    if dt is None:
+        return None
+
+    # If datetime is naive, assume it's UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    # Convert to UTC if it's in a different timezone
+    dt_utc = dt.astimezone(timezone.utc)
+
+    # Format as ISO string and replace +00:00 with Z
+    return dt_utc.isoformat().replace("+00:00", "Z")
 
 
 def validate_uuid(user_id: Union[str, int]) -> None:
@@ -135,8 +161,6 @@ def relative_name(key: str, user_prefix: str, prefix: Optional[str] = None) -> s
     return key.rstrip("/") if key.endswith("/") else key
 
 
-from datetime import datetime, timezone
-
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -198,7 +222,7 @@ async def list_files_in_bucket(
                 {
                     "key": name,
                     "display_key": name,
-                    "last_modified": datetime.now(timezone.utc).isoformat(),
+                    "last_modified": to_utc_iso(datetime.now(timezone.utc)),
                     "size_bytes": 0,
                     "synced": "false",  # Folders don't have sync status
                     "last_synced": None,
@@ -220,9 +244,9 @@ async def list_files_in_bucket(
                     "key": obj["Key"].removeprefix(user_prefix),
                     "display_key": name,
                     "last_modified": (
-                        obj["LastModified"].isoformat()
+                        to_utc_iso(obj["LastModified"])
                         if obj.get("LastModified")
-                        else datetime.now(timezone.utc).isoformat()
+                        else to_utc_iso(datetime.now(timezone.utc))
                     ),
                     "size_bytes": obj.get("Size", 0),
                     "synced": is_synced_via_metadata(
@@ -313,13 +337,13 @@ async def upload_file_to_bucket(
                     Bucket=BUCKET_NAME, Key=user_object_key
                 )
                 size_bytes = metadata["ContentLength"]
-                last_modified = metadata["LastModified"].isoformat()
+                last_modified = to_utc_iso(metadata["LastModified"])
                 user_metadata = metadata.get("Metadata", {})
                 confirmed_synced = user_metadata.get("synced", "false")
                 last_synced = user_metadata.get("last_synced")
             except ClientError as meta_err:
                 size_bytes = 0
-                last_modified = datetime.now(timezone.utc).isoformat()
+                last_modified = to_utc_iso(datetime.now(timezone.utc))
                 confirmed_synced = "false"
                 last_synced = None
 
@@ -427,7 +451,7 @@ async def get_file_info(
 
         last_modified = None
         if head.get("LastModified"):
-            last_modified = head["LastModified"].isoformat()
+            last_modified = to_utc_iso(head["LastModified"])
         user_metadata = head.get("Metadata", {})
         bucket = user_metadata.get("bucket") or BUCKET_NAME
         aws_bucket = user_metadata.get("aws_bucket") if synced == "true" else None

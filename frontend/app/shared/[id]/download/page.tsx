@@ -247,23 +247,17 @@ export default function PublicDownloadPage({
 
           <div className="text-center space-y-4">
             <div className="text-sm text-muted-foreground">
-              Powered by{" "}
-              <span className="font-semibold text-foreground">CloudFlow+</span>
+              Want to share files securely like this?
             </div>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link href="/signup">
-                <Button size="sm" className="w-full sm:w-auto">
-                  Create your free account
-                </Button>
-              </Link>
-              <Link href="/features">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full sm:w-auto text-primary hover:bg-transparent"
-                >
-                  See why CloudFlow+
-                </Button>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <Link
+                href="/"
+                className="text-sm font-medium text-primary hover:text-primary/90 relative inline-block transition-all duration-300 group hover:shadow-lg hover:shadow-primary/30"
+              >
+                <span className="relative">
+                  Continue with CloudFlow+
+                  <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-primary transition-all duration-300 ease-out group-hover:w-full"></span>
+                </span>
               </Link>
             </div>
           </div>
@@ -390,7 +384,9 @@ export default function PublicDownloadPage({
               <h1 className="text-2xl font-bold text-foreground">
                 Download File
               </h1>
-              <p className="text-sm text-muted-foreground">{fileInfo.name}</p>
+              <p className="text-sm text-muted-foreground truncate">
+                {fileInfo.name}
+              </p>
             </div>
             <div className="bg-muted rounded-lg p-8 flex items-center justify-center">
               <File className="h-12 w-12 text-foreground" />

@@ -487,7 +487,7 @@ export default function FileDetailsPage() {
     const res = await createSharedLink(payload);
     if (res.success) {
       toast.success("Share link created successfully");
-      router.push(`/share/${res.result.id}/view`);
+      router.push(`/shared/${res.result.id}/view`);
       setExpires("");
       setPassword("");
       setShowShareDialog(false);

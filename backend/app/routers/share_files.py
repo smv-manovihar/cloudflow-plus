@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import or_, asc
 from datetime import datetime, timezone
 import uuid
@@ -21,73 +22,33 @@ from app.models import SharedLink, User
 
 
 # ============================================================================
-# Pydantic Models
-# ============================================================================
-
-
-class CreateSharedLinkIn(BaseModel):
-    bucket: str
-    object_key: str
-    password: Optional[str] = None
-    expires_at: Optional[datetime] = None
-    enabled: Optional[bool] = True
-
-
-class SharedLinkOut(BaseModel):
-    id: uuid.UUID
-    name: str
-    bucket: str
-    object_key: str
-    full_key: str
-    size_bytes: Optional[int]
-    expires_at: Optional[datetime]
-    updated_at: datetime
-    created_at: datetime
-    enabled: bool
-    has_password: bool
-    qr_code: Optional[str]
-    user_id: Optional[str]
-
-
-class SharedLinkListItemOut(BaseModel):
-    id: uuid.UUID
-    name: str
-    bucket: str
-    size_bytes: Optional[int]
-    expires_at: Optional[datetime]
-    updated_at: datetime
-    created_at: datetime
-    enabled: bool
-    user_id: Optional[str]
-
-
-class SharedLinkListOut(BaseModel):
-    items: List[SharedLinkListItemOut]
-    total: int
-    page: int
-    page_size: int
-
-
-class UpdateSharedLinkIn(BaseModel):
-    enabled: Optional[bool] = None
-    remove_expiry: bool = Field(
-        default=False, description="Set to true to remove expiration"
-    )
-    expires_at: Optional[datetime] = Field(
-        default=None,
-        description="New expiration date in UTC (ignored if remove_expiry is true)",
-    )
-    remove_password: bool = Field(
-        default=False, description="Set to true to remove password protection"
-    )
-    password: Optional[str] = Field(
-        default=None, description="New password (ignored if remove_password is true)"
-    )
-
-
-# ============================================================================
 # Helper Functions
 # ============================================================================
+
+
+def to_utc_iso(dt: datetime) -> Optional[str]:
+    """
+    Convert datetime to UTC ISO 8601 format with 'Z' suffix.
+
+    Args:
+        dt: datetime object (can be timezone-aware or naive)
+
+    Returns:
+        ISO 8601 string with 'Z' suffix (e.g., '2025-10-20T18:39:00Z')
+        or None if dt is None
+    """
+    if dt is None:
+        return None
+
+    # If datetime is naive, assume it's UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    # Convert to UTC if it's in a different timezone
+    dt_utc = dt.astimezone(timezone.utc)
+
+    # Format as ISO string and replace +00:00 with Z
+    return dt_utc.isoformat().replace("+00:00", "Z")
 
 
 def validate_uuid(user_id: str) -> None:
@@ -120,6 +81,71 @@ def generate_presigned_url(bucket: str, key: str, expires_seconds: int = 60) -> 
         return url
     except ClientError as exc:
         raise HTTPException(status_code=502, detail="Error generating presigned URL")
+
+
+# ============================================================================
+# Pydantic Models
+# ============================================================================
+
+
+class CreateSharedLinkIn(BaseModel):
+    bucket: str
+    object_key: str
+    password: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    enabled: Optional[bool] = True
+
+
+class SharedLinkOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    bucket: str
+    object_key: str
+    full_key: str
+    size_bytes: Optional[int]
+    expires_at: Optional[str]  # Changed to str for ISO format
+    updated_at: str  # Changed to str for ISO format
+    created_at: str  # Changed to str for ISO format
+    enabled: bool
+    has_password: bool
+    qr_code: Optional[str]
+    user_id: Optional[str]
+
+
+class SharedLinkListItemOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    bucket: str
+    size_bytes: Optional[int]
+    expires_at: Optional[str]  # Changed to str for ISO format
+    updated_at: str  # Changed to str for ISO format
+    created_at: str  # Changed to str for ISO format
+    enabled: bool
+    user_id: Optional[str]
+
+
+class SharedLinkListOut(BaseModel):
+    items: List[SharedLinkListItemOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class UpdateSharedLinkIn(BaseModel):
+    enabled: Optional[bool] = None
+    remove_expiry: bool = Field(
+        default=False, description="Set to true to remove expiration"
+    )
+    expires_at: Optional[datetime] = Field(
+        default=None,
+        description="New expiration date in UTC (ignored if remove_expiry is true)",
+    )
+    remove_password: bool = Field(
+        default=False, description="Set to true to remove password protection"
+    )
+    password: Optional[str] = Field(
+        default=None, description="New password (ignored if remove_password is true)"
+    )
 
 
 # ============================================================================
@@ -217,56 +243,14 @@ def create_shared_link(
         object_key=object_key,
         full_key=user_object_key,
         size_bytes=link.size_bytes,
-        expires_at=link.expires_at,
-        updated_at=link.updated_at,
-        created_at=link.created_at,
+        expires_at=to_utc_iso(link.expires_at),
+        updated_at=to_utc_iso(link.updated_at),
+        created_at=to_utc_iso(link.created_at),
         enabled=link.enabled,
         has_password=bool(link.password),
         qr_code=link.qr_code,
         user_id=link.user_id,
     )
-
-
-@router.get("/{link_id}/download")
-def get_download_link(
-    link_id: str,
-    password: Optional[str] = None,
-    db: Session = Depends(get_db),
-):
-    """Get a presigned download URL for a shared link."""
-    try:
-        uid = uuid.UUID(link_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid link id")
-
-    link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
-    if not link:
-        raise HTTPException(status_code=404, detail="Shared link not found")
-
-    if not link.enabled:
-        raise HTTPException(status_code=403, detail="Link is disabled")
-
-    now = datetime.now(timezone.utc)
-    if link.expires_at:
-        if link.expires_at.tzinfo is None:
-            link.expires_at = link.expires_at.replace(tzinfo=timezone.utc)
-        else:
-            link.expires_at = link.expires_at.astimezone(timezone.utc)
-        if now > link.expires_at:
-            raise HTTPException(status_code=410, detail="Link expired")
-
-    if link.password:
-        if not password:
-            raise HTTPException(status_code=401, detail="Password required")
-        if not Hash.verify(password, link.password):
-            raise HTTPException(status_code=401, detail="Invalid password")
-
-    short_lived_seconds = 60
-    presigned = generate_presigned_url(
-        link.bucket, link.object_key, expires_seconds=short_lived_seconds
-    )
-
-    return {"url": presigned, "expires_in": short_lived_seconds}
 
 
 @router.get("/{link_id}/qr")
@@ -331,9 +315,9 @@ def get_link_info_for_owner(
         object_key=object_key,
         full_key=link.object_key,
         size_bytes=link.size_bytes,
-        expires_at=link.expires_at,
-        updated_at=link.updated_at,
-        created_at=link.created_at,
+        expires_at=to_utc_iso(link.expires_at),
+        updated_at=to_utc_iso(link.updated_at),
+        created_at=to_utc_iso(link.created_at),
         enabled=link.enabled,
         has_password=bool(link.password),
         qr_code=link.qr_code,
@@ -384,9 +368,9 @@ def list_my_shared_links(
             "name": item.name,
             "bucket": item.bucket,
             "size_bytes": item.size_bytes,
-            "expires_at": item.expires_at,
-            "updated_at": item.updated_at,
-            "created_at": item.created_at,
+            "expires_at": to_utc_iso(item.expires_at),
+            "updated_at": to_utc_iso(item.updated_at),
+            "created_at": to_utc_iso(item.created_at),
             "enabled": item.enabled,
             "user_id": item.user_id,
         }
@@ -396,40 +380,6 @@ def list_my_shared_links(
     return SharedLinkListOut(
         items=out_items, total=total, page=page, page_size=page_size
     )
-
-
-@router.get("/{link_id}/public")
-def get_file_info(link_id: str, db: Session = Depends(get_db)):
-    """Get S3 object metadata for a shared link."""
-    try:
-        uid = uuid.UUID(link_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid link id")
-
-    link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
-    if not link:
-        raise HTTPException(status_code=404, detail="Shared link not found")
-
-    if not link.enabled:
-        raise HTTPException(status_code=403, detail="Link is disabled")
-
-    now = datetime.now(timezone.utc)
-    if link.expires_at:
-        if link.expires_at.tzinfo is None:
-            link.expires_at = link.expires_at.replace(tzinfo=timezone.utc)
-        else:
-            link.expires_at = link.expires_at.astimezone(timezone.utc)
-        if now > link.expires_at:
-            raise HTTPException(status_code=410, detail="Link expired")
-
-    info = {
-        "name": link.name,
-        "bucket": link.bucket,
-        "size_bytes": link.size_bytes,
-        "has_password": bool(link.password),
-    }
-
-    return info
 
 
 @router.put("/{link_id}", response_model=SharedLinkOut)
@@ -460,8 +410,10 @@ def update_shared_link(
         link.enabled = payload.enabled
         has_changes = True
 
+    # ✅ FIXED: Explicitly mark as modified when setting to None
     if payload.remove_expiry:
         link.expires_at = None
+        flag_modified(link, "expires_at")  # Mark attribute as modified
         has_changes = True
     elif payload.expires_at is not None:
         expires_at = payload.expires_at
@@ -476,8 +428,10 @@ def update_shared_link(
         link.expires_at = expires_at
         has_changes = True
 
+    # ✅ FIXED: Also mark password as modified when removing
     if payload.remove_password:
         link.password = None
+        flag_modified(link, "password")  # Mark attribute as modified
         has_changes = True
     elif payload.password is not None:
         password_value = payload.password.strip()
@@ -493,7 +447,7 @@ def update_shared_link(
         link.password = Hash.encrypt(password_value)
         has_changes = True
 
-    # SQLAlchemy's onupdate parameter handles this automatically
+    # SQLAlchemy's onupdate parameter handles updated_at automatically
     if has_changes:
         db.add(link)
         db.commit()
@@ -512,9 +466,9 @@ def update_shared_link(
         object_key=object_key,
         full_key=link.object_key,
         size_bytes=link.size_bytes,
-        expires_at=link.expires_at,
-        updated_at=link.updated_at,
-        created_at=link.created_at,
+        expires_at=to_utc_iso(link.expires_at),
+        updated_at=to_utc_iso(link.updated_at),
+        created_at=to_utc_iso(link.created_at),
         enabled=link.enabled,
         has_password=bool(link.password),
         qr_code=link.qr_code,
@@ -578,3 +532,85 @@ def delete_shared_link(
     db.commit()
 
     return None
+
+
+@router.get("/{link_id}/download")
+def get_download_link(
+    link_id: str,
+    password: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Get a presigned download URL for a shared link."""
+    try:
+        uid = uuid.UUID(link_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid link id")
+
+    link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="Shared link not found")
+
+    if not link.enabled:
+        raise HTTPException(status_code=403, detail="Link is disabled")
+
+    now = datetime.now(timezone.utc)
+    if link.expires_at:
+        expires_at_utc = link.expires_at
+        if expires_at_utc.tzinfo is None:
+            # If still naive (old data), assume it's UTC
+            expires_at_utc = expires_at_utc.replace(tzinfo=timezone.utc)
+        else:
+            expires_at_utc = expires_at_utc.astimezone(timezone.utc)
+
+        if now > expires_at_utc:
+            raise HTTPException(status_code=410, detail="Link expired")
+
+    if link.password:
+        if not password:
+            raise HTTPException(status_code=401, detail="Password required")
+        if not Hash.verify(password, link.password):
+            raise HTTPException(status_code=401, detail="Invalid password")
+
+    short_lived_seconds = 60
+    presigned = generate_presigned_url(
+        link.bucket, link.object_key, expires_seconds=short_lived_seconds
+    )
+
+    return {"url": presigned, "expires_in": short_lived_seconds}
+
+
+@router.get("/{link_id}/public")
+def get_file_info(link_id: str, db: Session = Depends(get_db)):
+    """Get S3 object metadata for a shared link."""
+    try:
+        uid = uuid.UUID(link_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid link id")
+
+    link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
+    print(link)
+    if not link:
+        raise HTTPException(status_code=404, detail="Shared link not found")
+
+    if not link.enabled:
+        raise HTTPException(status_code=403, detail="Link is disabled")
+    if link.expires_at is not None:
+        now = datetime.now(timezone.utc)
+
+        expires_at_utc = link.expires_at
+        if expires_at_utc.tzinfo is None:
+            expires_at_utc = expires_at_utc.replace(tzinfo=timezone.utc)
+        else:
+            expires_at_utc = expires_at_utc.astimezone(timezone.utc)
+
+        if now > expires_at_utc:
+            raise HTTPException(status_code=410, detail="Link expired")
+
+    info = {
+        "name": link.name,
+        "bucket": link.bucket,
+        "size_bytes": link.size_bytes,
+        "has_password": bool(link.password),
+    }
+
+    return info

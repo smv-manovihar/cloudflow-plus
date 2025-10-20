@@ -74,7 +74,7 @@ export default function SharedLinkViewPage() {
         if (data.expires_at) {
           const localDate = new Date(data.expires_at);
           localExpiryDate = localDate.toLocaleDateString("en-CA"); // YYYY-MM-DD
-          localExpiryTime = localDate.toLocaleTimeString("en-US", {
+          localExpiryTime = localDate.toLocaleTimeString("en-IN", {
             hour12: false,
             hour: "2-digit",
             minute: "2-digit",
@@ -177,7 +177,7 @@ export default function SharedLinkViewPage() {
       payload.remove_expiry = true;
       hasChanges = true;
     } else if (userWantsExpiry) {
-      // Convert local date and time to UTC
+      // Create date from user input (local time)
       const localDateTime = new Date(`${expiryDate}T${expiryTime}:00`);
       const isValidDate = !isNaN(localDateTime.getTime());
 
@@ -186,17 +186,15 @@ export default function SharedLinkViewPage() {
         return;
       }
 
-      const utcDateTime = new Date(
-        localDateTime.getTime() - localDateTime.getTimezoneOffset() * 60000
-      );
-      const isFutureDate = utcDateTime > new Date();
+      // Check if it's in the future
+      const isFutureDate = localDateTime > new Date();
 
       if (!isFutureDate) {
         toast.error("Expiration time must be in the future");
         return;
       }
 
-      payload.expires_at = utcDateTime;
+      payload.expires_at = localDateTime;
       payload.remove_expiry = false;
       hasChanges = true;
     }
@@ -341,14 +339,6 @@ export default function SharedLinkViewPage() {
                   </p>
                   <p className="text-sm md:text-base text-foreground">
                     {link.createdAt}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1.5">
-                    Downloads
-                  </p>
-                  <p className="text-sm md:text-base text-foreground">
-                    {link.downloads}
                   </p>
                 </div>
               </div>
