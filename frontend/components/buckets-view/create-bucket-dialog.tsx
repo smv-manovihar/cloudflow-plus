@@ -105,7 +105,7 @@ export function CreateBucketDialog({
         onOpenChange?.(false);
       }
     } catch (err) {
-      console.error("Error creating bucket:", err);
+      // console.error("Error creating bucket:", err);
       setError("Failed to create bucket");
     } finally {
       setIsLoading(false);

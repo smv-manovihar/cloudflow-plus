@@ -7,6 +7,7 @@ import {
   useEffect,
   ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import {
   verifyUser,
   login as loginApi,
@@ -38,9 +39,14 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Check if we're on auth pages (login/signup) where we shouldn't auto-refresh
+  const isAuthPage = pathname === '/login' || pathname === '/signup';
+
   // Function to refresh user data
   const refreshUserData = async () => {
     try {
@@ -55,9 +61,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     } catch (error) {
       // Error refreshing user data - user will be logged out
-      // Don't log 401 errors as they're expected when user is not authenticated
+      // Don't log 401 or 404 errors as they're expected when user is not authenticated or not found
       const axiosError = error as AxiosError;
-      if (axiosError?.response?.status !== 401) {
+      if (axiosError?.response?.status !== 401 && axiosError?.response?.status !== 404) {
         // eslint-disable-next-line no-console
         console.error("Error refreshing user data:", error);
       }
@@ -67,6 +73,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    // Skip initial user check on auth pages
+    if (isAuthPage) {
+      setIsLoading(false);
+      return;
+    }
+
     const checkUser = async () => {
       try {
         setIsLoading(true);
@@ -77,17 +89,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     checkUser();
-  }, []);
+  }, [isAuthPage]);
 
   // Listen for token refresh events
   useEffect(() => {
+    // Skip token refresh events on auth pages to prevent infinite loops
+    if (isAuthPage) {
+      return;
+    }
+
     const unsubscribe = tokenRefreshEvents.subscribe(() => {
       // When token is refreshed, re-fetch user data
       refreshUserData();
     });
 
     return unsubscribe;
-  }, []);
+  }, [isAuthPage]);
 
   const login = async (data: LoginData): Promise<User> => {
     try {

@@ -82,6 +82,11 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
 
+      // Skip token refresh on login and signup pages to prevent infinite reloads
+      if (typeof window !== 'undefined' && (window.location.pathname === '/login' || window.location.pathname === '/signup')) {
+        return Promise.reject(error);
+      }
+
       if (isRefreshing) {
         // If we're already refreshing, queue this request
         return new Promise((resolve, reject) => {
@@ -98,7 +103,7 @@ api.interceptors.response.use(
 
       try {
         const newToken = await refreshToken();
-        
+
         if (newToken) {
           processQueue(null, newToken);
           // Emit token refresh event to notify auth context

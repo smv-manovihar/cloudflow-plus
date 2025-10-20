@@ -52,20 +52,21 @@ export default function LoginPage() {
       } else {
         setError("Login failed. Please try again.");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Provide more specific error messages based on common issues
       let errorMessage =
         "Invalid credentials. Please check your email and password.";
 
+      const error = err as { message?: string };
       if (
-        err.message?.includes("401") ||
-        err.message?.includes("Invalid credentials")
+        error.message?.includes("401") ||
+        error.message?.includes("Invalid credentials")
       ) {
         errorMessage = "Incorrect email or password. Please try again.";
-      } else if (err.message?.includes("network")) {
+      } else if (error.message?.includes("network")) {
         errorMessage =
           "Network error. Please check your connection and try again.";
-      } else if (err.message?.includes("failed")) {
+      } else if (error.message?.includes("failed")) {
         errorMessage = "Authentication failed. Please try again later.";
       }
 
@@ -75,7 +76,7 @@ export default function LoginPage() {
     }
   };
 
-  const handleInputChange = (value: string) => {
+  const handleInputChange = () => {
     if (error) setError("");
   };
 
@@ -106,7 +107,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
-                    handleInputChange(e.target.value);
+                    handleInputChange();
                   }}
                   disabled={isLoading}
                   className="transition-all"
@@ -124,7 +125,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
-                    handleInputChange(e.target.value);
+                    handleInputChange();
                   }}
                   disabled={isLoading}
                   className="transition-all"

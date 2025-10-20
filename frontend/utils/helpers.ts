@@ -37,8 +37,8 @@ export const handleApiError = (
 ): ApiErrorResult => {
   const axiosError = error as AxiosError<{ detail?: string; message?: string }>;
 
-  // Don't log 401 errors to console to prevent confusion
-  if (axiosError?.response?.status !== 401) {
+  // Don't log 401 or 404 errors to console to prevent confusion
+  if (axiosError?.response?.status !== 401 && axiosError?.response?.status !== 404) {
     console.error(defaultMessage, error);
   }
 

@@ -211,7 +211,7 @@ export function FilePreview({
         } else {
           setError("Failed to load file preview");
         }
-        console.error(err);
+        // console.error(err);
       } finally {
         setIsLoading(false);
       }

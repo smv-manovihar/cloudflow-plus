@@ -3,12 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import {
-  deleteFile,
-  downloadFile,
-  getFileInfo,
-  listFiles,
-} from "@/api/files.api";
+import { deleteFile, downloadFile, listFiles } from "@/api/files.api";
 import {
   FileItem,
   PageCache,
@@ -17,6 +12,7 @@ import {
   UploadFilesErrorResponse,
   UploadFilesResponse,
 } from "@/types/files.types";
+import { syncBucket, syncFile } from "@/api/sync.api";
 import FileList from "./files-list";
 import PaginationControls from "../layout/pagination-controls";
 import { Button } from "../ui/button";
@@ -31,17 +27,108 @@ import {
 import { Input } from "../ui/input";
 import { cn } from "@/lib/utils";
 import { UploadDropzone } from "./upload-dropzone";
-import { syncBucket, syncFile } from "@/api/sync.api";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { formatFileSize } from "@/utils/helpers";
 
+// Delete Dialog Component
+interface DeleteDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  fileData: FileItem | null;
+  deleteType: "local" | "aws";
+  isDeleting: boolean;
+  onDeleteTypeChange: (type: "local" | "aws") => void;
+  onDelete: () => void;
+}
+
+function DeleteDialog({
+  open,
+  onOpenChange,
+  fileData,
+  deleteType,
+  isDeleting,
+  onDeleteTypeChange,
+  onDelete,
+}: DeleteDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-full max-w-sm sm:max-w-md animate-in fade-in zoom-in-95 duration-300">
+        <DialogHeader>
+          <DialogTitle>Delete {fileData?.name}</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to delete{" "}
+            <span className="font-semibold text-foreground">
+              {fileData?.name}
+            </span>
+            ? This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 mb-4">
+          <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2">
+            <Button
+              type="button"
+              variant={deleteType === "local" ? "default" : "outline"}
+              size="sm"
+              onClick={() => onDeleteTypeChange("local")}
+              className="flex-1"
+            >
+              Delete Local Only
+            </Button>
+            <Button
+              type="button"
+              variant={deleteType === "aws" ? "default" : "outline"}
+              size="sm"
+              onClick={() => onDeleteTypeChange("aws")}
+              className="flex-1"
+              disabled={!fileData?.synced}
+            >
+              Delete from AWS Too
+              {fileData?.synced ? "" : " (Not Synced)"}
+            </Button>
+          </div>
+          <p
+            className={cn(
+              "text-xs text-muted-foreground",
+              deleteType === "aws" && "text-destructive"
+            )}
+          >
+            {deleteType === "local"
+              ? "This will only remove the file from the local bucket."
+              : "This will remove the file from both local and AWS buckets."}
+          </p>
+        </div>
+        <div className="flex gap-3 justify-end">
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isDeleting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={onDelete}
+            disabled={isDeleting}
+            className="gap-2"
+          >
+            {isDeleting
+              ? "Deleting..."
+              : `Delete ${deleteType === "aws" ? "(AWS Too)" : ""}`}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Main FileBrowser Component
 export default function FileBrowser() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -60,6 +147,10 @@ export default function FileBrowser() {
   const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [pendingFolderName, setPendingFolderName] = useState<string>("");
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
+  const [deleteType, setDeleteType] = useState<"local" | "aws">("local");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const relativeName = useCallback(
     (key: string) => {
@@ -71,7 +162,7 @@ export default function FileBrowser() {
   );
 
   const transformFiles = useCallback(
-    (s3Files: S3File[]): FileItem[] => {
+    (s3Files: S3File[], bucket: string | null): FileItem[] => {
       return s3Files
         .filter((f) => {
           if (!f || typeof f.key !== "string") return false;
@@ -91,6 +182,9 @@ export default function FileBrowser() {
             isFolder,
             key: f.key,
             synced: Boolean(f.synced),
+            bucket,
+            isShared: false,
+            sharedLinkId: null,
           };
         });
     },
@@ -113,7 +207,7 @@ export default function FileBrowser() {
           setCurrentPagination(null);
           return null;
         }
-        const transformed = transformFiles(data.files || []);
+        const transformed = transformFiles(data.files || [], data.bucket);
         setCurrentPageData(transformed);
         setCurrentPagination(data.pagination || null);
         return {
@@ -230,62 +324,56 @@ export default function FileBrowser() {
     }
   };
 
-  const handleShare = async (fileName: string, fileKey: string) => {
-    const toastId = toast.loading(`Generating share link for ${fileName}...`);
-    try {
-      const fileInfo = await getFileInfo(fileKey);
-      if (fileInfo.success) {
-        const dummyLink = `${window.location.origin}/share/${fileKey}`;
-        navigator.clipboard.writeText(dummyLink);
-        toast.success(`Share link created for ${fileName}`, {
-          id: toastId,
-          duration: 2000,
-        });
-        toast.success(`Link for ${fileName} copied to clipboard`, {
-          duration: 2000,
-        });
-      } else {
-        toast.error(
-          fileInfo.error || `Failed to create share link for ${fileName}`,
-          {
-            id: toastId,
-            duration: 3000,
-          }
-        );
-      }
-    } catch (error) {
-      console.error("Share error:", error);
-      toast.error(`An unexpected error occurred while sharing ${fileName}`, {
-        id: toastId,
+  const handleDelete = async (fileName: string, fileKey: string) => {
+    const file = currentPageData.find((f) => f.key === fileKey);
+    if (!file) {
+      toast.error(`File ${fileName} not found`, {
         duration: 3000,
       });
+      return;
     }
+    setSelectedFile(file);
+    setDeleteType("local");
+    setShowDeleteDialog(true);
   };
 
-  const handleDelete = async (fileName: string, fileKey: string) => {
-    // setDeleteDialogOpen(true);
-    // setDeleteType("local");
-    const toastId = toast.loading(`Deleting ${fileName}...`);
+  const handleDeleteConfirm = async () => {
+    if (!selectedFile) return;
+
+    setIsDeleting(true);
+    const toastId = toast.loading(`Deleting ${selectedFile.name}...`);
     try {
-      const result = await deleteFile(fileKey, true);
+      const sync = deleteType === "aws";
+      const result = await deleteFile(selectedFile.key, sync);
       if (result.success) {
-        setCurrentPageData((prev) => prev.filter((f) => f.key !== fileKey));
-        toast.success(`${fileName} deleted`, {
-          id: toastId,
-          duration: 2000,
-        });
+        setCurrentPageData((prev) =>
+          prev.filter((f) => f.key !== selectedFile.key)
+        );
+        toast.success(
+          `${selectedFile.name} deleted${sync ? " (including from AWS)" : ""}`,
+          {
+            id: toastId,
+            duration: 2000,
+          }
+        );
+        setShowDeleteDialog(false);
+        setSelectedFile(null);
       } else {
-        toast.error(result.error || `Failed to delete ${fileName}`, {
+        toast.error(result.error || `Failed to delete ${selectedFile.name}`, {
           id: toastId,
           duration: 3000,
         });
       }
     } catch (error) {
-      console.error("Delete error:", error);
-      toast.error(`An unexpected error occurred while deleting ${fileName}`, {
-        id: toastId,
-        duration: 3000,
-      });
+      toast.error(
+        `An unexpected error occurred while deleting ${selectedFile.name}`,
+        {
+          id: toastId,
+          duration: 3000,
+        }
+      );
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -479,7 +567,6 @@ export default function FileBrowser() {
             </Button>
           </div>
         </div>
-        {/* <Breadcrumbs prefix={prefix} router={router} /> */}
       </div>
 
       <div className="flex-1 flex flex-col overflow-auto">
@@ -518,7 +605,10 @@ export default function FileBrowser() {
           onFileClick={handleFileClick}
           onFolderClick={handleFolderClick}
           onDownload={handleDownload}
-          onShare={handleShare}
+          onShare={(fileName, fileKey) => {
+            // TODO: Implement share functionality
+            toast.info("Share functionality coming soon");
+          }}
           onSyncFile={handleSyncFile}
           onDelete={handleDelete}
         />
@@ -534,6 +624,19 @@ export default function FileBrowser() {
           </>
         )}
       </div>
+
+      <DeleteDialog
+        open={showDeleteDialog}
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open);
+          if (!open) setSelectedFile(null);
+        }}
+        fileData={selectedFile}
+        deleteType={deleteType}
+        isDeleting={isDeleting}
+        onDeleteTypeChange={setDeleteType}
+        onDelete={handleDeleteConfirm}
+      />
 
       <Dialog
         open={showCreateFolderDialog}

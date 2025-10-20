@@ -108,7 +108,7 @@ export function UploadDropzone({
           }`,
           { id: uploadToast, duration: 5000 }
         );
-        console.error("Upload error:", error);
+        // console.error("Upload error:", error);
         if (folderToCreate && onCreateCancelled) {
           onCreateCancelled();
         }

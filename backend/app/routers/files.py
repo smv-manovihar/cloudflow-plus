@@ -12,47 +12,67 @@ from fastapi import (
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from fastapi.routing import APIRouter
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Generator, Union
 import os
 from urllib.parse import unquote
+import uuid
+import logging
 
 from app.services.s3_service import minio_s3_client, aws_s3_client
 from app.database import get_db
 from app.models import SharedLink
+from app.schemas import User
 from app.core.config import BUCKET_NAME
+from app.oauth2 import get_current_user
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/files", tags=["Files"])
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+
+def validate_uuid(user_id: Union[str, int]) -> None:
+    """
+    Validate that the provided user_id is a valid UUID.
+
+    Args:
+        user_id: The user ID to validate.
+
+    Raises:
+        HTTPException: If the user_id is not a valid UUID.
+    """
+    try:
+        if isinstance(user_id, int):
+            user_id = str(user_id)
+        uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid user ID format: must be a valid UUID",
+        )
 
 
 def is_synced_via_etag(bucket_name: str, object_key: str) -> bool:
     """
     Checks if an object in MinIO is synced to AWS by comparing ETags via head calls.
-
-    Args:
-        bucket_name: Name of the bucket
-        object_key: Key of the object to check
-
-    Returns:
-        bool: True if the object exists in AWS S3 with the same ETag, False otherwise
     """
     try:
-        # Get ETag from MinIO
         minio_response = minio_s3_client.head_object(Bucket=bucket_name, Key=object_key)
         minio_etag = minio_response["ETag"].strip('"')
-
-        # Get ETag from AWS S3
         aws_response = aws_s3_client.head_object(Bucket=bucket_name, Key=object_key)
         aws_etag = aws_response["ETag"].strip('"')
-
-        # Compare ETags
         return minio_etag == aws_etag
-
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
         if error_code in ["NoSuchKey", "404"]:
-            return False  # Object not found in AWS S3, so not synced
+            return False
         if error_code == "NoSuchBucket":
-            return False  # Bucket not found in AWS S3, so not synced
+            return False
         raise HTTPException(status_code=500, detail=f"AWS S3 check error: {error_code}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sync check error: {str(e)}")
@@ -63,15 +83,6 @@ def is_synced_via_metadata(
 ) -> bool:
     """
     Checks if an object in MinIO is synced to AWS by inspecting the 'synced' metadata flag.
-    Reuses provided head_response to avoid duplicate calls.
-
-    Args:
-        bucket_name: Name of the bucket
-        object_key: Key of the object to check
-        head_response: Optional MinIO head_object response to reuse metadata from
-
-    Returns:
-        bool: True if the object's metadata has "synced": "true", False otherwise
     """
     response = head_response
     if response is None:
@@ -80,9 +91,9 @@ def is_synced_via_metadata(
         except ClientError as e:
             error_code = e.response["Error"]["Code"]
             if error_code in ["NoSuchKey", "404"]:
-                return False  # Object not found, so not synced
+                return False
             if error_code == "NoSuchBucket":
-                return False  # Bucket not found, so not synced
+                return False
             raise HTTPException(
                 status_code=500, detail=f"MinIO metadata check error: {error_code}"
             )
@@ -90,12 +101,38 @@ def is_synced_via_metadata(
             raise HTTPException(
                 status_code=500, detail=f"Sync status check error: {str(e)}"
             )
-
     user_metadata = response.get("Metadata", {})
     return user_metadata.get("synced") == "true"
 
 
+def relative_name(key: str, user_prefix: str, prefix: Optional[str] = None) -> str:
+    """
+    Compute the relative path for a key, preserving slashes for folders.
+
+    Args:
+        key: The full S3 key or prefix.
+        user_prefix: The user-specific prefix (e.g., 'user_id/').
+        prefix: Optional prefix filter (e.g., 'folder/').
+
+    Returns:
+        The relative path with trailing slash for folders.
+    """
+    base = user_prefix
+    if prefix:
+        base += prefix
+    if base and key.startswith(base):
+        relative = key[len(base) :]
+        if key.endswith("/"):
+            return relative
+        return relative.rstrip("/")
+    return key.rstrip("/") if key.endswith("/") else key
+
+
 from datetime import datetime, timezone
+
+# ============================================================================
+# Endpoints
+# ============================================================================
 
 
 @router.get("/")
@@ -105,49 +142,55 @@ async def list_files_in_bucket(
         default=None, description="Pagination cursor for next page"
     ),
     prefix: Optional[str] = Query(default=None, description="Filter by prefix/folder"),
+    q: Optional[str] = Query(
+        default=None, description="Search term for filtering files"
+    ),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> JSONResponse:
     """
-    Lists files in a bucket with cursor-based pagination and alphabetical sorting.
-    Folders (CommonPrefixes) are returned first, followed by files (Contents),
-    each group sorted alphabetically by the immediate-name (relative to prefix).
+    Lists files in a bucket under the user's prefix with cursor-based pagination and alphabetical sorting.
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
 
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
     try:
+        # Construct user-specific prefix: user_id/prefix
+        user_prefix = f"{current_user.id}/"
+        search_prefix = user_prefix
+        if prefix:
+            search_prefix += prefix
+        if q:
+            search_prefix += q
+
         params = {
             "Bucket": BUCKET_NAME,
             "MaxKeys": page_size,
-            "Delimiter": "/",  # return CommonPrefixes for "folders"
+            "Delimiter": "/",
+            "Prefix": search_prefix,
         }
-
-        if prefix:
-            params["Prefix"] = prefix
 
         if cursor:
             params["ContinuationToken"] = cursor
 
         response = minio_s3_client.list_objects_v2(**params)
 
-        # Build folders (CommonPrefixes) and files (Contents) lists separately
         common_prefixes = response.get("CommonPrefixes", [])
         contents = response.get("Contents", [])
-
-        def relative_name(key: str) -> str:
-            base = prefix or ""
-            if base and key.startswith(base):
-                return key[len(base) :]
-            return key
 
         folders = []
         for cp in common_prefixes:
             p = cp.get("Prefix")
             if not p:
                 continue
-            name = relative_name(p).rstrip("/")
+            name = relative_name(p, user_prefix, prefix)
             folders.append(
                 {
-                    "key": p,
+                    "key": name,
+                    "display_key": name,
                     "last_modified": datetime.now(timezone.utc).isoformat(),
                     "size_bytes": 0,
                     "synced": False,
@@ -157,16 +200,18 @@ async def list_files_in_bucket(
 
         files = []
         for obj in contents:
-            if prefix and obj["Key"] == prefix:
+            if obj["Key"] == search_prefix:
                 continue
             head_response = minio_s3_client.head_object(
                 Bucket=BUCKET_NAME, Key=obj["Key"]
             )
             user_metadata = head_response.get("Metadata", {})
             last_synced = user_metadata.get("last_synced")
+            name = relative_name(obj["Key"], user_prefix, prefix)
             files.append(
                 {
-                    "key": obj["Key"],
+                    "key": obj["Key"].removeprefix(user_prefix),
+                    "display_key": name,
                     "last_modified": (
                         obj["LastModified"].isoformat()
                         if obj.get("LastModified")
@@ -180,9 +225,8 @@ async def list_files_in_bucket(
                 }
             )
 
-        # Sort each group alphabetically by their immediate (relative) name (case-insensitive)
-        folders.sort(key=lambda f: relative_name(f["key"]).rstrip("/").lower())
-        files.sort(key=lambda f: relative_name(f["key"]).lower())
+        folders.sort(key=lambda f: f["display_key"].lower())
+        files.sort(key=lambda f: f["display_key"].lower())
 
         combined = folders + files
 
@@ -194,10 +238,13 @@ async def list_files_in_bucket(
                 "has_more": response.get("IsTruncated", False),
             },
             "bucket": BUCKET_NAME,
+            "user_id": current_user.id,
         }
 
         if prefix:
             result["prefix"] = prefix
+        if q:
+            result["search_term"] = q
 
         if response.get("NextContinuationToken"):
             result["pagination"]["next_cursor"] = response["NextContinuationToken"]
@@ -209,285 +256,39 @@ async def list_files_in_bucket(
         http_status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         if http_status == 404 or error_code in ["NoSuchBucket", "NoSuchKey", "404"]:
             raise HTTPException(
-                status_code=404, detail=f"Bucket '{BUCKET_NAME}' not found."
+                status_code=404,
+                detail=f"Bucket '{BUCKET_NAME}' or user prefix not found.",
             )
         elif error_code == "InvalidToken":
             raise HTTPException(
                 status_code=400, detail="Invalid cursor token provided."
             )
         raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
-
-
-@router.get("/search")
-async def search_files_in_bucket(
-    prefix: str = Query(
-        ...,
-        description="Search term to filter objects by prefix (case-sensitive by default)",
-    ),
-    case_insensitive: bool = Query(
-        default=False,
-        description="Enable case-insensitive search (less efficient for large buckets)",
-    ),
-    page_size: int = Query(default=12, ge=1, le=1000, description="Items per page"),
-    cursor: Optional[str] = Query(
-        default=None, description="Pagination cursor for next page"
-    ),
-    db: Session = Depends(get_db),
-) -> JSONResponse:
-    """
-    Searches for files and folders in a bucket where the object key starts with the search query as a prefix.
-    By default, case-sensitive (S3 native). Set case_insensitive=True for case-insensitive matching via client-side filter.
-    Results are paginated and sorted alphabetically (case-insensitive). Folders first, then files.
-    """
-    if not minio_s3_client:
-        raise HTTPException(status_code=503, detail="S3 client not initialized")
-
-    if not prefix.strip("/"):
-        raise HTTPException(status_code=400, detail="Search query cannot be empty")
-
-    try:
-        query_lower = prefix.lower().strip("/")
-        folders = []
-        files = []
-        has_more = False
-        next_cursor = None
-
-        if case_insensitive:
-            # Client-side case-insensitive filter: Paginate through bucket until enough matches
-            # Warning: Inefficient for large buckets; use only if necessary
-            current_cursor = cursor
-            collected_count = 0
-            max_fetches = 10  # Safety limit: max 10k objects scanned per request
-            fetch_count = 0
-
-            while len(folders + files) < page_size and fetch_count < max_fetches:
-                params = {
-                    "Bucket": BUCKET_NAME,
-                    "MaxKeys": 1000,
-                    "Delimiter": "/",
-                }
-                if current_cursor:
-                    params["ContinuationToken"] = current_cursor
-
-                response = minio_s3_client.list_objects_v2(**params)
-                common_prefixes = response.get("CommonPrefixes", [])
-                contents = response.get("Contents", [])
-
-                # Filter folders case-insensitively
-                for cp in common_prefixes:
-                    p = cp.get("Prefix", "").strip("/")
-                    if p.lower().startswith(query_lower):
-                        rel_name = (
-                            p[len(query_lower) :]
-                            if p.lower().startswith(query_lower)
-                            else p
-                        )
-                        folders.append(
-                            {
-                                "key": cp["Prefix"],
-                                "last_modified": datetime.now(timezone.utc).isoformat(),
-                                "size_bytes": 0,
-                                "synced": False,
-                                "is_shared": False,
-                                "last_synced": None,
-                            }
-                        )
-                        collected_count += 1
-
-                # Filter files case-insensitively
-                for obj in contents:
-                    key = obj["Key"].strip("/")
-                    if key.lower().startswith(query_lower):
-                        try:
-                            share_count = (
-                                db.query(SharedLink)
-                                .filter(
-                                    SharedLink.object_key == obj["Key"],
-                                    SharedLink.bucket == BUCKET_NAME,
-                                )
-                                .count()
-                            )
-                            is_shared = share_count > 0
-                        except Exception as db_err:
-                            logger.warning(f"DB error for {obj['Key']}: {db_err}")
-                            is_shared = False
-
-                        head_response = minio_s3_client.head_object(
-                            Bucket=BUCKET_NAME, Key=obj["Key"]
-                        )
-                        user_metadata = head_response.get("Metadata", {})
-                        last_synced = user_metadata.get("last_synced")
-                        files.append(
-                            {
-                                "key": obj["Key"],
-                                "last_modified": obj["LastModified"].isoformat(),
-                                "size_bytes": obj.get("Size", 0),
-                                "synced": is_synced_via_metadata(
-                                    BUCKET_NAME, obj["Key"], head_response
-                                ),
-                                "is_shared": is_shared,
-                                "last_synced": last_synced,
-                            }
-                        )
-                        collected_count += 1
-
-                if not response.get("IsTruncated"):
-                    break
-
-                current_cursor = response.get("NextContinuationToken")
-                fetch_count += 1
-
-            if fetch_count >= max_fetches:
-                logger.warning("Search hit fetch limit; results may be incomplete")
-            has_more = bool(current_cursor) and len(folders + files) == page_size
-            next_cursor = current_cursor
-
-        else:
-            # Native case-sensitive prefix search (efficient)
-            prefix = prefix.strip("/")
-            params = {
-                "Bucket": BUCKET_NAME,
-                "Prefix": prefix,
-                "MaxKeys": page_size,
-                "Delimiter": "/",
-            }
-            if cursor:
-                params["ContinuationToken"] = cursor
-
-            response = minio_s3_client.list_objects_v2(**params)
-            common_prefixes = response.get("CommonPrefixes", [])
-            contents = response.get("Contents", [])
-
-            def relative_name(key: str) -> str:
-                # Extract relative to prefix for display/sorting
-                return (
-                    key[len(prefix) :].lstrip("/")
-                    if key.startswith(prefix)
-                    else key.lstrip("/")
-                )
-
-            # Process folders
-            for cp in common_prefixes:
-                p = cp.get("Prefix")
-                if not p:
-                    continue
-                folders.append(
-                    {
-                        "key": p,
-                        "last_modified": datetime.now(timezone.utc).isoformat(),
-                        "size_bytes": 0,
-                        "synced": False,
-                        "is_shared": False,
-                        "last_synced": None,
-                    }
-                )
-
-            # Process files
-            for obj in contents:
-                if obj["Key"] == prefix or obj["Key"] == prefix + "/":
-                    continue  # Skip folder placeholders
-                try:
-                    share_count = (
-                        db.query(SharedLink)
-                        .filter(
-                            SharedLink.object_key == obj["Key"],
-                            SharedLink.bucket == BUCKET_NAME,
-                        )
-                        .count()
-                    )
-                    is_shared = share_count > 0
-                except Exception as db_err:
-                    logger.warning(f"DB error for {obj['Key']}: {db_err}")
-                    is_shared = False
-
-                head_response = minio_s3_client.head_object(
-                    Bucket=BUCKET_NAME, Key=obj["Key"]
-                )
-                user_metadata = head_response.get("Metadata", {})
-                last_synced = user_metadata.get("last_synced")
-                files.append(
-                    {
-                        "key": obj["Key"],
-                        "last_modified": obj["LastModified"].isoformat(),
-                        "size_bytes": obj.get("Size", 0),
-                        "synced": is_synced_via_metadata(
-                            BUCKET_NAME, obj["Key"], head_response
-                        ),
-                        "is_shared": is_shared,
-                        "last_synced": last_synced,
-                    }
-                )
-
-            has_more = response.get("IsTruncated", False)
-            next_cursor = response.get("NextContinuationToken")
-
-        # Sort case-insensitively (folders by relative name, files by key)
-        def sort_key(item):
-            rel = (
-                relative_name(item["key"])
-                if "relative_name" in locals()
-                else item["key"].lower()
-            )
-            return rel.lower().rstrip("/")
-
-        folders.sort(key=sort_key)
-        files.sort(key=lambda f: f["key"].lower())
-
-        combined = (
-            folders + files[: page_size - len(folders)]
-        )  # Ensure total <= page_size
-
-        result = {
-            "files": combined,
-            "pagination": {
-                "count": len(combined),
-                "page_size": page_size,
-                "has_more": has_more,
-            },
-            "bucket": BUCKET_NAME,
-            "prefix": prefix,
-            "case_insensitive": case_insensitive,
-        }
-        if next_cursor:
-            result["pagination"]["next_cursor"] = next_cursor
-
-        return result
-
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        if error_code in ["NoSuchBucket", "NoSuchKey", "404"]:
-            raise HTTPException(
-                status_code=404, detail=f"Bucket '{BUCKET_NAME}' not found."
-            )
-        elif error_code == "InvalidToken":
-            raise HTTPException(
-                status_code=400, detail="Invalid cursor token provided."
-            )
-        raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
-    except Exception as e:
-        logger.error(f"Search error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
-async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResponse:
+async def upload_file_to_bucket(
+    files: List[UploadFile] = File(...), current_user: User = Depends(get_current_user)
+) -> JSONResponse:
     """
-    Upload one or more files to the MinIO bucket.
-    Sets initial metadata for sync tracking (synced: false, last_synced: null).
+    Upload one or more files to the MinIO bucket under the user's prefix.
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
+
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
 
     results = []
     errors = []
 
     for file in files:
+        user_object_key = f"{current_user.id}/{file.filename}"
         try:
-            # Upload with initial metadata (synced: false, last_synced: null)
             minio_s3_client.upload_fileobj(
                 file.file,
                 BUCKET_NAME,
-                file.filename,
+                user_object_key,
                 ExtraArgs={
                     "ContentType": file.content_type or "application/octet-stream",
                     "Metadata": {
@@ -495,13 +296,14 @@ async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResp
                         "synced": "false",
                         "aws_bucket": "",
                         "last_synced": "",
+                        "user_id": str(current_user.id),
                     },
                 },
             )
 
             try:
                 metadata = minio_s3_client.head_object(
-                    Bucket=BUCKET_NAME, Key=file.filename
+                    Bucket=BUCKET_NAME, Key=user_object_key
                 )
                 size_bytes = metadata["ContentLength"]
                 last_modified = metadata["LastModified"].isoformat()
@@ -517,12 +319,14 @@ async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResp
             results.append(
                 {
                     "filename": file.filename,
+                    "key": file.filename,
                     "size_bytes": size_bytes,
                     "last_modified": last_modified,
                     "synced": confirmed_synced,
                     "last_synced": last_synced,
                     "message": "File uploaded successfully",
                     "bucket": BUCKET_NAME,
+                    "user_id": current_user.id,
                 }
             )
         except ClientError as e:
@@ -563,6 +367,7 @@ async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResp
     return {
         "message": "All files uploaded successfully",
         "bucket": BUCKET_NAME,
+        "user_id": current_user.id,
         "uploads": results,
     }
 
@@ -570,37 +375,49 @@ async def upload_file_to_bucket(files: List[UploadFile] = File(...)) -> JSONResp
 @router.get("/{object_key:path}/info")
 async def get_file_info(
     object_key: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
     """
-    Get file info (metadata) for a specific file (object) in a bucket.
-    Includes sync status, AWS bucket (if synced), and whether it's shared.
+    Get file info (metadata) for a specific file under the user's prefix.
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
 
-    # Decode object_key if URL-encoded
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
+    # Decode URL-encoded object_key
     object_key = unquote(object_key)
+    user_object_key = f"{current_user.id}/{object_key}"
+
+    # Log the keys for debugging
+    logger.info(f"Requested object_key: {object_key}")
+    logger.info(f"Constructed user_object_key: {user_object_key}")
 
     try:
-        head = minio_s3_client.head_object(Bucket=BUCKET_NAME, Key=object_key)
-        synced = is_synced_via_metadata(BUCKET_NAME, object_key, head)
+        # Check if the object exists
+        head = minio_s3_client.head_object(Bucket=BUCKET_NAME, Key=user_object_key)
+        synced = is_synced_via_metadata(BUCKET_NAME, user_object_key, head)
+
+        # Check for shared link
         shared_link_id = None
         try:
-            shared_link_id = (
+            shared_link = (
                 db.query(SharedLink)
                 .filter(
-                    SharedLink.object_key == object_key,
+                    SharedLink.object_key == user_object_key,
                     SharedLink.bucket == BUCKET_NAME,
+                    SharedLink.user_id == current_user.id,
                 )
                 .first()
-                .id
             )
+            shared_link_id = shared_link.id if shared_link else None
             is_shared = shared_link_id is not None
         except Exception as db_err:
+            logger.error(f"Database error while checking shared link: {db_err}")
             is_shared = False
 
-        # Serialize LastModified to ISO string for JSON compatibility
         last_modified = None
         if head.get("LastModified"):
             last_modified = head["LastModified"].isoformat()
@@ -612,7 +429,7 @@ async def get_file_info(
         return JSONResponse(
             content={
                 "bucket": bucket,
-                "object_key": object_key,
+                "key": object_key,
                 "content_length": head.get("ContentLength"),
                 "last_modified": last_modified,
                 "synced": synced,
@@ -620,16 +437,42 @@ async def get_file_info(
                 "last_synced": last_synced,
                 "is_shared": is_shared,
                 "shared_link_id": shared_link_id,
+                "user_id": current_user.id,
             }
         )
     except ClientError as exc:
         error_code = exc.response["Error"]["Code"]
-        if error_code in ["NoSuchKey", "NoSuchBucket", "404"]:
+        error_message = exc.response["Error"].get("Message", str(exc))
+        logger.error(
+            f"S3 Error: Code={error_code}, Message={error_message}, Key={user_object_key}"
+        )
+        if error_code in ["NoSuchKey", "404"]:
+            # List objects to help diagnose key mismatch
+            try:
+                user_prefix = f"{current_user.id}/"
+                response = minio_s3_client.list_objects_v2(
+                    Bucket=BUCKET_NAME, Prefix=user_prefix, MaxKeys=10
+                )
+                available_keys = [obj["Key"] for obj in response.get("Contents", [])]
+                logger.info(f"Available keys under {user_prefix}: {available_keys}")
+            except Exception as list_err:
+                logger.error(f"Error listing objects: {list_err}")
+                available_keys = []
             raise HTTPException(
                 status_code=404,
-                detail=f"Object '{object_key}' or bucket '{BUCKET_NAME}' not found",
+                detail={
+                    "message": f"Object '{object_key}' not found in bucket '{BUCKET_NAME}' for user",
+                    "available_keys": available_keys,
+                },
+            )
+        if error_code == "NoSuchBucket":
+            raise HTTPException(
+                status_code=404, detail=f"Bucket '{BUCKET_NAME}' not found."
             )
         raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
+    except Exception as e:
+        logger.error(f"Unexpected error for key {user_object_key}: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
 def get_file_extension(object_key: str) -> str:
@@ -649,39 +492,64 @@ def get_content_type(extension: str) -> str:
     return mime_types.get(extension, "application/octet-stream")
 
 
+STREAMING_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MB
+
+
+def iter_s3_stream(
+    s3_body, chunk_size: int = STREAMING_CHUNK_SIZE
+) -> Generator[bytes, None, None]:
+    """
+    Generator to stream S3 object in optimized chunks.
+    """
+    try:
+        while True:
+            data = s3_body.read(chunk_size)
+            if not data:
+                break
+            yield data
+    finally:
+        s3_body.close()
+
+
 async def handle_file_request(
-    object_key: str, request: Request, is_head: bool = False
+    object_key: str, request: Request, current_user: User, is_head: bool = False
 ) -> Response:
     """
-    Shared logic for GET and HEAD requests to retrieve or validate a file from a bucket.
-    Supports range requests for streaming.
+    Optimized GET/HEAD handler with improved streaming performance.
     """
     if not minio_s3_client:
         raise HTTPException(status_code=503, detail="S3 client not initialized")
 
-    # Decode object_key if URL-encoded
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
     object_key = unquote(object_key)
+    user_object_key = f"{current_user.id}/{object_key}"
 
     try:
-        # Get object metadata to determine file size and content type
-        head_response = minio_s3_client.head_object(Bucket=BUCKET_NAME, Key=object_key)
+        head_response = minio_s3_client.head_object(
+            Bucket=BUCKET_NAME, Key=user_object_key
+        )
         file_size = head_response["ContentLength"]
         content_type = head_response.get(
-            "ContentType", get_content_type(get_file_extension(object_key))
+            "ContentType", get_content_type(get_file_extension(user_object_key))
         )
         filename = object_key.split("/")[-1]
         synced = is_synced_via_metadata(
-            bucket_name=BUCKET_NAME, object_key=object_key, head_response=head_response
+            bucket_name=BUCKET_NAME,
+            object_key=user_object_key,
+            head_response=head_response,
         )
 
         headers = {
-            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Disposition": f'attachment; filename="{filename}"',
             "X-Synced-To-AWS": str(synced).lower(),
             "Accept-Ranges": "bytes",
+            "X-User-Id": str(current_user.id),
+            "Cache-Control": "public, max-age=3600",
         }
 
         if is_head:
-            # HEAD request: return headers only
             headers.update(
                 {
                     "Content-Length": str(file_size),
@@ -690,7 +558,6 @@ async def handle_file_request(
             )
             return Response(status_code=200, headers=headers)
 
-        # GET request: handle range or full file
         range_header = request.headers.get("range")
         if range_header:
             range_str = range_header.replace("bytes=", "")
@@ -701,11 +568,15 @@ async def handle_file_request(
                 end = int(range_parts[1]) if range_parts[1] else file_size - 1
 
             if start >= file_size or end >= file_size or start > end:
-                raise HTTPException(status_code=416, detail="Range Not Satisfiable")
+                raise HTTPException(
+                    status_code=416,
+                    detail="Range Not Satisfiable",
+                    headers={"Content-Range": f"bytes */{file_size}"},
+                )
 
             range_spec = f"bytes={start}-{end}"
             s3_response = minio_s3_client.get_object(
-                Bucket=BUCKET_NAME, Key=object_key, Range=range_spec
+                Bucket=BUCKET_NAME, Key=user_object_key, Range=range_spec
             )
             content_length = end - start + 1
 
@@ -718,22 +589,23 @@ async def handle_file_request(
             )
 
             return StreamingResponse(
-                s3_response["Body"],
+                iter_s3_stream(s3_response["Body"], STREAMING_CHUNK_SIZE),
                 media_type=content_type,
                 headers=headers,
                 status_code=206,
             )
         else:
-            s3_response = minio_s3_client.get_object(Bucket=BUCKET_NAME, Key=object_key)
+            s3_response = minio_s3_client.get_object(
+                Bucket=BUCKET_NAME, Key=user_object_key
+            )
             headers.update(
                 {
                     "Content-Length": str(file_size),
                     "Content-Type": content_type,
                 }
             )
-
             return StreamingResponse(
-                s3_response["Body"],
+                iter_s3_stream(s3_response["Body"], STREAMING_CHUNK_SIZE),
                 media_type=content_type,
                 headers=headers,
                 status_code=200,
@@ -744,52 +616,94 @@ async def handle_file_request(
         if error_code in ["NoSuchKey", "404"]:
             raise HTTPException(
                 status_code=404,
-                detail=f"File '{object_key}' not found in bucket '{BUCKET_NAME}'.",
+                detail=f"File '{object_key}' not found in bucket '{BUCKET_NAME}' for user",
+            )
+        if error_code == "NoSuchBucket":
+            raise HTTPException(
+                status_code=404, detail=f"Bucket '{BUCKET_NAME}' not found."
+            )
+        logger.error(f"S3 Error for {user_object_key}: {error_code} - {e}")
+        raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
+
+    except Exception as e:
+        logger.error(f"Unexpected error streaming {user_object_key}: {e}")
+        raise HTTPException(
+            status_code=500, detail="Internal server error during file streaming"
+        )
+
+
+@router.get("/{object_key:path}")
+async def get_file_from_bucket(
+    object_key: str, request: Request, current_user: User = Depends(get_current_user)
+) -> StreamingResponse:
+    """
+    Downloads or streams a specific file from a bucket under the user's prefix.
+    """
+    return await handle_file_request(object_key, request, current_user, is_head=False)
+
+
+@router.head("/{object_key:path}")
+async def head_file_from_bucket(
+    object_key: str, request: Request, current_user: User = Depends(get_current_user)
+) -> Response:
+    """
+    Retrieves metadata for a specific file under the user's prefix (HEAD request).
+    """
+    return await handle_file_request(object_key, request, current_user, is_head=True)
+
+
+@router.delete("/{object_key:path}", status_code=status.HTTP_200_OK)
+async def delete_file_from_bucket(
+    object_key: str,
+    sync: bool,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """
+    Deletes a specific file (object) from a bucket under the user's prefix.
+    """
+    if not minio_s3_client:
+        raise HTTPException(status_code=503, detail="S3 client not initialized")
+
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
+    object_key = unquote(object_key)
+    user_object_key = f"{current_user.id}/{object_key}"
+
+    try:
+        synced = is_synced_via_metadata(BUCKET_NAME, user_object_key)
+        minio_s3_client.delete_object(Bucket=BUCKET_NAME, Key=user_object_key)
+        if sync:
+            aws_s3_client.delete_object(Bucket=BUCKET_NAME, Key=user_object_key)
+
+        link = (
+            db.query(SharedLink)
+            .filter(SharedLink.object_key == user_object_key)
+            .first()
+        )
+
+        if link:
+            db.delete(link)
+            db.commit()
+
+        return {
+            "message": "File deleted successfully",
+            "bucket": BUCKET_NAME,
+            "filename": object_key,
+            "key": object_key,
+            "synced": synced,
+            "user_id": current_user.id,
+        }
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code in ["NoSuchKey", "404"]:
+            raise HTTPException(
+                status_code=404,
+                detail=f"File '{object_key}' not found for user",
             )
         if error_code == "NoSuchBucket":
             raise HTTPException(
                 status_code=404, detail=f"Bucket '{BUCKET_NAME}' not found."
             )
         raise HTTPException(status_code=500, detail=f"S3 Error: {error_code}")
-
-
-@router.get("/{object_key:path}")
-async def get_file_from_bucket(object_key: str, request: Request) -> StreamingResponse:
-    """
-    Downloads or streams a specific file from a bucket, supporting range requests for video streaming.
-    """
-    return await handle_file_request(object_key, request, is_head=False)
-
-
-@router.head("/{object_key:path}")
-async def head_file_from_bucket(object_key: str, request: Request) -> Response:
-    """
-    Retrieves metadata for a specific file from a bucket (HEAD request).
-    """
-    return await handle_file_request(object_key, request, is_head=True)
-
-
-@router.delete("/{object_key:path}", status_code=status.HTTP_200_OK)
-async def delete_file_from_bucket(object_key: str, sync: bool) -> JSONResponse:
-    """
-    Deletes a specific file (object) from a bucket.
-    """
-    if not minio_s3_client:
-        raise HTTPException(status_code=503, detail="S3 client not initialized")
-
-    # Decode object_key if URL-encoded
-    object_key = unquote(object_key)
-
-    try:
-        synced = is_synced_via_metadata(BUCKET_NAME, object_key)
-        minio_s3_client.delete_object(Bucket=BUCKET_NAME, Key=object_key)
-        if sync:
-            aws_s3_client.delete_object(Bucket=BUCKET_NAME, Key=object_key)
-        return {
-            "message": "File deleted successfully",
-            "bucket": BUCKET_NAME,
-            "filename": object_key,
-            "synced": synced,
-        }
-    except ClientError as e:
-        raise HTTPException(status_code=500, detail=str(e))

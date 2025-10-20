@@ -171,7 +171,7 @@ export const getFileInfo = async (
     return {
       success: true,
       bucket: data.bucket ?? "",
-      object_key: data.object_key ?? objectKey,
+      object_key: data.key ?? objectKey,
       content_length: data.content_length ?? 0,
       last_modified: data.last_modified
         ? new Date(data.last_modified).toISOString()

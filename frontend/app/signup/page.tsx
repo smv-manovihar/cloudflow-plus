@@ -68,7 +68,7 @@ export default function SignupPage() {
       } else {
         setError("Authentication failed after registration");
       }
-    } catch (err) {
+    } catch (_err) {
       setError("Registration failed. Please try again.");
     } finally {
       setIsLoading(false);

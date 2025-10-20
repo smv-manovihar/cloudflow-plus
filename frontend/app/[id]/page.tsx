@@ -74,9 +74,6 @@ function Header({
           <h1 className="text-sm md:text-xl font-bold text-foreground truncate">
             {fileName}
           </h1>
-          <p className="text-xs md:text-sm text-muted-foreground">
-            Object Key: {objectKey}
-          </p>
         </div>
       </div>
       <ActionButtons
@@ -165,7 +162,7 @@ function ActionButtons({
       <Button
         onClick={onDelete}
         variant="outline"
-        className="gap-2 text-destructive hover:text-destructive animate-in fade-in slide-in-from-left-2 duration-500 delay-250"
+        className="gap-2 text-destructive hover:bg-destructive animate-in fade-in slide-in-from-left-2 duration-500 delay-250"
         size="sm"
       >
         <Trash2 className="h-4 w-4" />
@@ -335,7 +332,7 @@ export default function FileDetailsPage() {
           const apiError = response as FileInfoErrorResponse;
           setError(apiError.error || "Failed to fetch file info");
         }
-      } catch (err) {
+      } catch (_err) {
         setError("An unexpected error occurred while fetching file info.");
       } finally {
         setIsLoading(false);

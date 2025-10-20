@@ -31,7 +31,7 @@ export const createSharedLink = async (
   try {
     const payloadToSend = {
       ...payload,
-      expires_at: payload.expires_at ? payload.expires_at.toISOString() : undefined,
+      expires_at: payload.expires_at ? payload.expires_at.toISOString() : undefined, // Ensure UTC ISO string
     };
 
     const { data } = await api.post("/share/create", payloadToSend);
@@ -42,7 +42,7 @@ export const createSharedLink = async (
       bucket: data.bucket,
       object_key: data.object_key,
       size_bytes: data.size_bytes,
-      expires_at: data.expires_at,
+      expires_at: data.expires_at, // UTC ISO string from backend
       updated_at: data.updated_at,
       created_at: data.created_at,
       enabled: data.enabled,
@@ -57,6 +57,9 @@ export const createSharedLink = async (
   }
 };
 
+// ---------------------------
+// Get Download Link
+// ---------------------------
 
 export const getDownloadLink = async (
   linkId: string,
@@ -112,7 +115,6 @@ export const getDownloadLink = async (
   }
 };
 
-
 // ---------------------------
 // Get QR Code
 // ---------------------------
@@ -143,7 +145,7 @@ export const getLinkInfo = async (linkId: string): Promise<GetLinkInfoResultType
       bucket: data.bucket,
       object_key: data.object_key,
       size_bytes: data.size_bytes,
-      expires_at: data.expires_at,
+      expires_at: data.expires_at, // UTC ISO string from backend
       updated_at: data.updated_at,
       created_at: data.created_at,
       enabled: data.enabled,
@@ -186,7 +188,7 @@ export const listSharedLinks = async (
         name: item.name,
         bucket: item.bucket,
         size_bytes: item.size_bytes,
-        expires_at: item.expires_at,
+        expires_at: item.expires_at, // UTC ISO string from backend
         updated_at: item.updated_at,
         created_at: item.created_at,
         enabled: item.enabled,
@@ -236,19 +238,16 @@ export const getSharedFileInfo = async (linkId: string): Promise<GetFileInfoResu
     return { success: false, error: { status: status ?? 500, message: errorMsg } };
   }
 };
+
 // ---------------------------
 // Update Shared Link
 // ---------------------------
 
-
-
-// Update API function
 export const updateSharedLink = async (
   linkId: string,
   payload: UpdateSharedLinkPayload
 ): Promise<UpdateSharedLinkResultType> => {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const payloadToSend: any = {};
 
     // Enabled field
@@ -259,16 +258,14 @@ export const updateSharedLink = async (
     // Expiry with explicit flag
     if (payload.remove_expiry === true) {
       payloadToSend.remove_expiry = true;
-      // Don't send expires_at when removing
     } else if (payload.expires_at !== undefined && payload.expires_at !== null) {
-      payloadToSend.expires_at = payload.expires_at.toISOString();
+      payloadToSend.expires_at = payload.expires_at.toISOString(); // Ensure UTC ISO string
       payloadToSend.remove_expiry = false;
     }
 
     // Password with explicit flag
     if (payload.remove_password === true) {
       payloadToSend.remove_password = true;
-      // Don't send password when removing
     } else if (payload.password !== undefined && payload.password !== null) {
       payloadToSend.password = payload.password;
       payloadToSend.remove_password = false;
@@ -282,7 +279,7 @@ export const updateSharedLink = async (
       bucket: data.bucket,
       object_key: data.object_key,
       size_bytes: data.size_bytes,
-      expires_at: data.expires_at,
+      expires_at: data.expires_at, // UTC ISO string from backend
       updated_at: data.updated_at,
       created_at: data.created_at,
       enabled: data.enabled,
@@ -296,6 +293,7 @@ export const updateSharedLink = async (
     return handleApiError(error, "An unknown error occurred while updating the shared link.");
   }
 };
+
 // ---------------------------
 // Delete Shared Link
 // ---------------------------

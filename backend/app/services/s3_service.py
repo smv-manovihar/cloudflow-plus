@@ -1,4 +1,6 @@
 import boto3
+from botocore.config import Config
+from botocore.exceptions import NoCredentialsError, ClientError
 from app.core.config import (
     MINIO_ENDPOINT_URL,
     MINIO_ACCESS_KEY,
@@ -7,28 +9,38 @@ from app.core.config import (
     AWS_REGION,
     AWS_SECRET_KEY,
 )
-from botocore.exceptions import NoCredentialsError, ClientError
+
+
+def _get_optimized_config():
+    """Returns optimized botocore Config for video streaming."""
+    return Config(
+        max_pool_connections=50,
+        retries={"total_max_attempts": 4, "mode": "adaptive"},
+        connect_timeout=2,
+        read_timeout=10,
+        tcp_keepalive=True,
+    )
 
 
 def _create_aws_client():
-    """
-    Initializes and returns a boto3 S3 client configured for AWS S3.
-    This is an internal function not intended for direct import.
-    """
+    """Initializes AWS S3 client with streaming optimizations."""
     try:
         if not all([AWS_ACCESS_KEY, AWS_SECRET_KEY]):
             print("⚠️  AWS credentials not found in environment. Skipping AWS client.")
             return None
+
+        config = _get_optimized_config()
 
         client = boto3.client(
             "s3",
             aws_access_key_id=AWS_ACCESS_KEY,
             aws_secret_access_key=AWS_SECRET_KEY,
             region_name=AWS_REGION,
+            config=config,
         )
-        # A simple check to verify credentials
+
         client.list_buckets()
-        print("✅ AWS S3 client initialized successfully.")
+        print("✅ AWS S3 client initialized with optimized streaming config.")
         return client
     except (NoCredentialsError, ClientError) as e:
         print(f"❌ Error initializing AWS S3 client: {e}")
@@ -39,17 +51,15 @@ def _create_aws_client():
 
 
 def _create_minio_client():
-    """
-    Initializes and returns a boto3 S3 client configured for MinIO.
-    This is an internal function not intended for direct import.
-    """
+    """Initializes MinIO client with streaming optimizations."""
     try:
-
         if not all([MINIO_ENDPOINT_URL, MINIO_ACCESS_KEY, MINIO_SECRET_KEY]):
             print(
                 "⚠️  MinIO configuration not found in environment. Skipping MinIO client."
             )
             return None
+
+        config = _get_optimized_config()
 
         client = boto3.client(
             "s3",
@@ -57,10 +67,12 @@ def _create_minio_client():
             aws_access_key_id=MINIO_ACCESS_KEY,
             aws_secret_access_key=MINIO_SECRET_KEY,
             region_name="us-east-1",
+            config=config,
         )
+
         client.list_buckets()
         print(
-            f"✅ MinIO client initialized successfully. Endpoint: {MINIO_ENDPOINT_URL}"
+            f"✅ MinIO client initialized with optimized streaming config. Endpoint: {MINIO_ENDPOINT_URL}"
         )
         return client
     except Exception as e:

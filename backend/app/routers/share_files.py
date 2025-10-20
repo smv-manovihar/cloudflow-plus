@@ -37,6 +37,7 @@ class SharedLinkOut(BaseModel):
     name: str
     bucket: str
     object_key: str
+    full_key: str
     size_bytes: Optional[int]
     expires_at: Optional[datetime]
     updated_at: datetime
@@ -44,7 +45,7 @@ class SharedLinkOut(BaseModel):
     enabled: bool
     has_password: bool
     qr_code: Optional[str]
-    user_id: Optional[int]
+    user_id: Optional[str]  # Changed to string for UUID
 
 
 class SharedLinkListItemOut(BaseModel):
@@ -56,7 +57,7 @@ class SharedLinkListItemOut(BaseModel):
     updated_at: datetime
     created_at: datetime
     enabled: bool
-    user_id: Optional[int]
+    user_id: Optional[str]  # Changed to string for UUID
 
 
 class SharedLinkListOut(BaseModel):
@@ -68,15 +69,13 @@ class SharedLinkListOut(BaseModel):
 
 class UpdateSharedLinkIn(BaseModel):
     enabled: Optional[bool] = None
-
     remove_expiry: bool = Field(
         default=False, description="Set to true to remove expiration"
     )
     expires_at: Optional[datetime] = Field(
         default=None,
-        description="New expiration date (ignored if remove_expiry is true)",
+        description="New expiration date in UTC (ignored if remove_expiry is true)",
     )
-
     remove_password: bool = Field(
         default=False, description="Set to true to remove password protection"
     )
@@ -88,6 +87,25 @@ class UpdateSharedLinkIn(BaseModel):
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
+
+def validate_uuid(user_id: str) -> None:
+    """
+    Validate that the provided user_id is a valid UUID.
+
+    Args:
+        user_id: The user ID to validate.
+
+    Raises:
+        HTTPException: If the user_id is not a valid UUID.
+    """
+    try:
+        uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid user ID format: must be a valid UUID",
+        )
 
 
 def generate_presigned_url(bucket: str, key: str, expires_seconds: int = 60) -> str:
@@ -122,24 +140,27 @@ def create_shared_link(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a new shared link for an S3 object."""
-    # Decode object_key if URL-encoded
+    """Create a new shared link for an S3 object under the user's prefix."""
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
+    # Decode object_key and prepend user_id
     object_key = unquote(payload.object_key)
+    user_object_key = f"{current_user.id}/{object_key}"
 
-    # Ensure expires_at is timezone-aware
+    # Ensure expires_at is timezone-aware UTC
     expires_at = payload.expires_at
-    if expires_at and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-    # Validate expires_at is in the future
-    if expires_at and expires_at < datetime.now(timezone.utc):
-        raise HTTPException(
-            status_code=400, detail="Expiration time must be in the future"
-        )
+    if expires_at:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=400, detail="Expiration time must be in the future (UTC)"
+            )
 
     # Fetch object metadata to get size
     try:
-        head = aws_s3_client.head_object(Bucket=BUCKET_NAME, Key=object_key)
+        head = aws_s3_client.head_object(Bucket=BUCKET_NAME, Key=user_object_key)
         size_bytes = head.get("ContentLength")
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
@@ -168,12 +189,12 @@ def create_shared_link(
     buf.seek(0)
     qr_code_b64 = base64.b64encode(buf.getvalue()).decode()
 
-    # Create new shared link, including the qr_code and size
+    # Create new shared link
     link = SharedLink(
         id=new_id,
         bucket=payload.bucket,
         name=name,
-        object_key=object_key,
+        object_key=user_object_key,
         size_bytes=size_bytes,
         password=hashed_password,
         expires_at=expires_at,
@@ -190,7 +211,8 @@ def create_shared_link(
         id=uuid.UUID(link.id),
         name=link.name,
         bucket=link.bucket,
-        object_key=link.object_key,
+        object_key=object_key,
+        full_key=user_object_key,
         size_bytes=link.size_bytes,
         expires_at=link.expires_at,
         updated_at=link.updated_at,
@@ -209,31 +231,25 @@ def get_download_link(
     db: Session = Depends(get_db),
 ):
     """Get a presigned download URL for a shared link."""
-    # Validate UUID
     try:
         uid = uuid.UUID(link_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid link id")
 
-    # Fetch link from database
     link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
     if not link:
         raise HTTPException(status_code=404, detail="Shared link not found")
 
-    # Check if link is enabled
     if not link.enabled:
         raise HTTPException(status_code=403, detail="Link is disabled")
 
-    # Check if link has expired
     now = datetime.now(timezone.utc)
     if link.expires_at:
-        # Ensure expires_at is timezone-aware
         if link.expires_at.tzinfo is None:
             link.expires_at = link.expires_at.replace(tzinfo=timezone.utc)
         if now > link.expires_at:
             raise HTTPException(status_code=410, detail="Link expired")
 
-    # Verify password if required
     if link.password:
         if not password:
             raise HTTPException(status_code=401, detail="Password required")
@@ -241,8 +257,6 @@ def get_download_link(
             raise HTTPException(status_code=401, detail="Invalid password")
 
     short_lived_seconds = 60
-
-    # Generate presigned URL
     presigned = generate_presigned_url(
         link.bucket, link.object_key, expires_seconds=short_lived_seconds
     )
@@ -257,26 +271,24 @@ def generate_qr(
     current_user: User = Depends(get_current_user),
 ):
     """Retrieve and serve the QR code for a shared link."""
-    # Validate UUID
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
     try:
         uid = uuid.UUID(link_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid link id")
 
-    # Fetch link from database
     link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
     if not link:
         raise HTTPException(status_code=404, detail="Shared link not found")
 
-    # Check ownership
     if link.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
 
-    # Check if QR code exists in the database
     if not link.qr_code:
         raise HTTPException(status_code=404, detail="QR code not found for this link.")
 
-    # Decode the base64 string and return the image
     image_bytes = base64.b64decode(link.qr_code)
     return StreamingResponse(io.BytesIO(image_bytes), media_type="image/png")
 
@@ -288,26 +300,33 @@ def get_link_info_for_owner(
     current_user: User = Depends(get_current_user),
 ):
     """Get detailed information about a shared link (owner only)."""
-    # Validate UUID
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
     try:
         uid = uuid.UUID(link_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid link id")
 
-    # Fetch link from database
     link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
     if not link:
         raise HTTPException(status_code=404, detail="Shared link not found")
 
-    # Check ownership
     if link.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
+
+    # Extract object_key without user_id prefix for response
+    object_key = link.object_key
+    user_prefix = f"{current_user.id}/"
+    if object_key.startswith(user_prefix):
+        object_key = object_key[len(user_prefix) :]
 
     return SharedLinkOut(
         id=uuid.UUID(link.id),
         name=link.name,
         bucket=link.bucket,
-        object_key=link.object_key,
+        object_key=object_key,
+        full_key=link.object_key,
         size_bytes=link.size_bytes,
         expires_at=link.expires_at,
         updated_at=link.updated_at,
@@ -330,28 +349,26 @@ def list_my_shared_links(
     current_user: User = Depends(get_current_user),
 ):
     """List all shared links created by the current user."""
-    # Base query
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
     query = db.query(SharedLink).filter(SharedLink.user_id == current_user.id)
 
-    # Filter by enabled status
     if enabled is not None:
         query = query.filter(SharedLink.enabled == enabled)
 
-    # Filter expired links
     if not include_expired:
         now = datetime.now(timezone.utc)
         query = query.filter(
             or_(SharedLink.expires_at == None, SharedLink.expires_at > now)
         )
 
-    # Search by object_key
     if q:
-        query = query.filter(SharedLink.object_key.ilike(f"%{q}%"))
+        user_prefix = f"{current_user.id}/"
+        query = query.filter(SharedLink.object_key.ilike(f"{user_prefix}%{q}%"))
 
-    # Get total count
     total = query.count()
 
-    # Get paginated items
     items = (
         query.order_by(asc(SharedLink.expires_at).nulls_first())
         .offset((page - 1) * page_size)
@@ -359,7 +376,6 @@ def list_my_shared_links(
         .all()
     )
 
-    # Convert to output models
     out_items = [
         {
             "id": uuid.UUID(item.id),
@@ -383,31 +399,25 @@ def list_my_shared_links(
 @router.get("/{link_id}/public")
 def get_file_info(link_id: str, db: Session = Depends(get_db)):
     """Get S3 object metadata for a shared link."""
-    # Validate UUID
     try:
         uid = uuid.UUID(link_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid link id")
 
-    # Fetch link from database
     link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
     if not link:
         raise HTTPException(status_code=404, detail="Shared link not found")
 
-    # Check if link is enabled
     if not link.enabled:
         raise HTTPException(status_code=403, detail="Link is disabled")
 
-    # Check if link has expired
     now = datetime.now(timezone.utc)
     if link.expires_at:
-        # Ensure expires_at is timezone-aware
         if link.expires_at.tzinfo is None:
             link.expires_at = link.expires_at.replace(tzinfo=timezone.utc)
         if now > link.expires_at:
             raise HTTPException(status_code=410, detail="Link expired")
 
-    # Return file information
     info = {
         "name": link.name,
         "bucket": link.bucket,
@@ -426,99 +436,82 @@ def update_shared_link(
     current_user: User = Depends(get_current_user),
 ):
     """Update an existing shared link with explicit boolean flags."""
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
 
-    # Validate UUID
     try:
         uid = uuid.UUID(link_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid Link")
+        raise HTTPException(status_code=400, detail="Invalid link id")
 
-    # Fetch link from database
     link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
     if link is None:
         raise HTTPException(status_code=404, detail="Shared link not found")
 
-    # Check ownership
     if link.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
 
     has_changes = False
 
-    # Update enabled status - explicit check
     if payload.enabled is not None:
         link.enabled = payload.enabled
         has_changes = True
 
-    # Update expiration time - with explicit remove flag
-    should_remove_expiry = payload.remove_expiry is True
-
-    if should_remove_expiry is True:
-        # Explicitly removing expiry
+    if payload.remove_expiry:
         link.expires_at = None
         has_changes = True
     elif payload.expires_at is not None:
-        # Setting new expiry date
         expires_at = payload.expires_at
-
-        # Ensure timezone awareness
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-        # Validate future date
-        is_future_date = expires_at > datetime.now(timezone.utc)
-        if is_future_date is False:
+        if expires_at <= datetime.now(timezone.utc):
             raise HTTPException(
-                status_code=400, detail="Expiration time must be in the future"
+                status_code=400, detail="Expiration time must be in the future (UTC)"
             )
-
         link.expires_at = expires_at
         has_changes = True
 
-    # Update password - with explicit remove flag
-    should_remove_password = payload.remove_password is True
-
-    if should_remove_password is True:
-        # Explicitly removing password protection
+    if payload.remove_password:
         link.password = None
         has_changes = True
     elif payload.password is not None:
-        # Setting new password
         password_value = payload.password.strip()
-        is_empty = len(password_value) == 0
-
-        if is_empty is True:
+        if len(password_value) == 0:
             raise HTTPException(
                 status_code=400,
                 detail="Password cannot be empty. Use remove_password flag to remove protection.",
             )
-
-        is_long_enough = len(password_value) >= 4
-        if is_long_enough is False:
+        if len(password_value) < 4:
             raise HTTPException(
                 status_code=400, detail="Password must be at least 4 characters"
             )
-
         link.password = Hash.encrypt(password_value)
         has_changes = True
 
-    # Update timestamp if changes were made
-    if has_changes is True:
+    if has_changes:
         link.updated_at = datetime.now(timezone.utc)
         db.add(link)
         db.commit()
         db.refresh(link)
 
+    # Extract object_key without user_id prefix for response
+    object_key = link.object_key
+    user_prefix = f"{current_user.id}/"
+    if object_key.startswith(user_prefix):
+        object_key = object_key[len(user_prefix) :]
+
     return SharedLinkOut(
         id=uuid.UUID(link.id),
         name=link.name,
         bucket=link.bucket,
-        object_key=link.object_key,
+        object_key=object_key,
+        full_key=link.object_key,
         size_bytes=link.size_bytes,
         expires_at=link.expires_at,
         updated_at=link.updated_at,
         created_at=link.created_at,
         enabled=link.enabled,
-        has_password=link.password is not None and link.password != "",
+        has_password=bool(link.password),
         qr_code=link.qr_code,
         user_id=link.user_id,
     )
@@ -530,23 +523,22 @@ def delete_shared_link(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Delete a shared link (bonus endpoint for completeness)."""
-    # Validate UUID
+    """Delete a shared link."""
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
     try:
         uid = uuid.UUID(link_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid link id")
 
-    # Fetch link from database
     link = db.query(SharedLink).filter(SharedLink.id == str(uid)).first()
     if not link:
         raise HTTPException(status_code=404, detail="Shared link not found")
 
-    # Check ownership
     if link.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
 
-    # Delete link
     db.delete(link)
     db.commit()
 

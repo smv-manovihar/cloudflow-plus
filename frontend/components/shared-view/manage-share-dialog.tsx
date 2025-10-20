@@ -1,67 +1,89 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import Image from "next/image"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Badge } from "@/components/ui/badge"
-import { toast } from "@/components/ui/use-toast"
-import { Copy, LinkIcon, QrCode } from "lucide-react"
+import * as React from "react";
+import Image from "next/image";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "@/components/ui/use-toast";
+import { Copy, LinkIcon, QrCode } from "lucide-react";
 
 export type ManageShareItem = {
-  id: string
-  name: string
-  size: string
-  createdAt: string
-  expiresAt?: string | null
-  views?: number
-  url: string
-}
+  id: string;
+  name: string;
+  size: string;
+  createdAt: string;
+  expiresAt?: string | null;
+  views?: number;
+  url: string;
+};
 
 export function ManageShareDialog({
   open,
   onOpenChange,
   item,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  item: ManageShareItem | null
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  item: ManageShareItem | null;
 }) {
-  const [duration, setDuration] = React.useState<string>("7d")
-  const shareUrl = item?.url ?? ""
+  const [duration, setDuration] = React.useState<string>("7d");
+  const shareUrl = item?.url ?? "";
 
   React.useEffect(() => {
-    if (!open || !item) return
+    if (!open || !item) return;
     // If your API returns duration/expiry, hydrate it here
     // setDuration(item.duration ?? '7d')
-  }, [open, item])
+  }, [open, item]);
 
   function copyUrl() {
-    if (!shareUrl) return
-    navigator.clipboard.writeText(shareUrl)
-    toast({ title: "Link copied", description: "Share URL copied to clipboard." })
+    if (!shareUrl) return;
+    navigator.clipboard.writeText(shareUrl);
+    toast({
+      title: "Link copied",
+      description: "Share URL copied to clipboard.",
+    });
   }
 
   async function saveChanges() {
     // TODO: PATCH your API with the new duration/expiry
-    toast({ title: "Share updated", description: "Share settings were saved." })
-    onOpenChange(false)
+    toast({
+      title: "Share updated",
+      description: "Share settings were saved.",
+    });
+    onOpenChange(false);
   }
 
-  if (!item) return null
+  if (!item) return null;
 
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(shareUrl)}`
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
+    shareUrl
+  )}`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Manage shared link</DialogTitle>
-          <DialogDescription>View details, set duration, and share the link or QR code.</DialogDescription>
+          <DialogDescription>
+            View details, set duration, and share the link or QR code.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
@@ -70,7 +92,11 @@ export function ManageShareDialog({
             <Label htmlFor="share-url">Share URL</Label>
             <div className="flex items-center gap-2">
               <Input id="share-url" value={shareUrl} readOnly />
-              <Button variant="secondary" onClick={copyUrl} aria-label="Copy share URL">
+              <Button
+                variant="secondary"
+                onClick={copyUrl}
+                aria-label="Copy share URL"
+              >
                 <Copy className="mr-2 size-4" />
                 Copy
               </Button>
@@ -86,7 +112,9 @@ export function ManageShareDialog({
               <Badge variant="secondary" className="whitespace-nowrap">
                 {item.size}
               </Badge>
-              <Badge className="whitespace-nowrap">Views: {item.views ?? 0}</Badge>
+              <Badge className="whitespace-nowrap">
+                Views: {item.views ?? 0}
+              </Badge>
             </div>
             <div className="text-sm text-muted-foreground">
               <p>Created: {item.createdAt}</p>
@@ -124,7 +152,7 @@ export function ManageShareDialog({
             <Label>QR code</Label>
             <div className="flex items-center gap-4">
               <Image
-                src={qrSrc || null}
+                src={qrSrc}
                 alt="QR code for shared link"
                 width={160}
                 height={160}
@@ -137,7 +165,10 @@ export function ManageShareDialog({
                     Open link
                   </a>
                 </Button>
-                <Button variant="outline" onClick={() => window.open(qrSrc, "_blank")}>
+                <Button
+                  variant="outline"
+                  onClick={() => window.open(qrSrc, "_blank")}
+                >
                   <QrCode className="mr-2 size-4" />
                   Open QR
                 </Button>
@@ -154,5 +185,5 @@ export function ManageShareDialog({
         </div>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

@@ -22,8 +22,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 
 export default function Settings() {
+  const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
   const [profileData, setProfileData] = useState({
     fullName: "",
@@ -122,7 +124,7 @@ export default function Settings() {
       // e.g., await deleteAccount(); await logout();
       await new Promise((resolve) => setTimeout(resolve, 1500));
       toast.success("Account deleted");
-      window.location.href = "/login";
+      router.push("/login");
     } catch (error) {
       toast.error("Failed to delete account. Please try again.");
     } finally {

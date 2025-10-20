@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
-import jwt
+import jwt, os
 from jwt import PyJWTError
-
 from pydantic import BaseModel
 from fastapi import Request, HTTPException, status, Depends, Security
 from fastapi.security import OAuth2PasswordBearer, APIKeyCookie
@@ -10,8 +9,8 @@ from typing import Optional
 
 from . import database, models
 
-SECRET_KEY = "super-secret-key-please-change"  # Use .env in production!
-REFRESH_SECRET_KEY = "another-super-secret-key"  # Keep different from access
+SECRET_KEY = os.getenv("SECRET_KEY")
+REFRESH_SECRET_KEY = os.getenv("REFRESH_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
 REFRESH_TOKEN_EXPIRE_DAYS = 7

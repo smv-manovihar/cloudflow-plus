@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Copy, Download, QrCode, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -46,7 +46,7 @@ export default function SharedLinkViewPage() {
   const [expiryTime, setExpiryTime] = useState("00:00");
   const [showPassword, setShowPassword] = useState(false);
 
-  const fetchLinkData = async () => {
+  const fetchLinkData = useCallback(async () => {
     if (!params.id) {
       setLoading(false);
       return;
@@ -66,7 +66,20 @@ export default function SharedLinkViewPage() {
             ? "expired"
             : "disabled";
 
-        const createdDate = data.created_at.split("T")[0];
+        const createdDate = new Date(data.created_at).toLocaleDateString();
+
+        // Convert UTC expires_at to local time for display
+        let localExpiryDate = "";
+        let localExpiryTime = "00:00";
+        if (data.expires_at) {
+          const localDate = new Date(data.expires_at);
+          localExpiryDate = localDate.toLocaleDateString("en-CA"); // YYYY-MM-DD
+          localExpiryTime = localDate.toLocaleTimeString("en-US", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+        }
 
         setLink({
           id: data.id,
@@ -88,15 +101,8 @@ export default function SharedLinkViewPage() {
         setIsEnabled(data.enabled);
         setHasExpiry(!!data.expires_at);
         setUsePasswordProtection(data.has_password);
-        if (data.expires_at) {
-          setExpiryDate(expTime!.toISOString().split("T")[0]);
-          setExpiryTime(
-            expTime!.toISOString().split("T")[1]?.slice(0, 5) || "00:00"
-          );
-        } else {
-          setExpiryDate("");
-          setExpiryTime("00:00");
-        }
+        setExpiryDate(localExpiryDate);
+        setExpiryTime(localExpiryTime);
 
         const qrRes = await getQrCode(data.id);
         if (qrRes.success) {
@@ -107,16 +113,16 @@ export default function SharedLinkViewPage() {
       } else {
         toast.error(res.error || "Failed to fetch link info");
       }
-    } catch (error) {
+    } catch (_error) {
       toast.error("An unexpected error occurred while fetching data");
     } finally {
       setLoading(false);
     }
-  };
+  }, [params.id]);
 
   useEffect(() => {
     fetchLinkData();
-  }, [params.id]);
+  }, [fetchLinkData]);
 
   const handleCopyLink = () => {
     if (!link) return;
@@ -158,57 +164,58 @@ export default function SharedLinkViewPage() {
 
     // Enabled status
     const enabledChanged = isEnabled !== link.enabled;
-    if (enabledChanged === true) {
+    if (enabledChanged) {
       payload.enabled = isEnabled;
       hasChanges = true;
     }
 
     // Expiry handling with explicit flag
     const linkHasExpiry = link.expiresAt !== null;
-    const userWantsExpiry = hasExpiry === true;
+    const userWantsExpiry = hasExpiry;
 
-    if (userWantsExpiry === false && linkHasExpiry === true) {
-      // User wants to remove expiry
+    if (!userWantsExpiry && linkHasExpiry) {
       payload.remove_expiry = true;
       hasChanges = true;
-    } else if (userWantsExpiry === true) {
-      // User wants to set/update expiry
-      const expiresAtDate = new Date(`${expiryDate}T${expiryTime}:00Z`);
-      const isValidDate = !isNaN(expiresAtDate.getTime());
+    } else if (userWantsExpiry) {
+      // Convert local date and time to UTC
+      const localDateTime = new Date(`${expiryDate}T${expiryTime}:00`);
+      const isValidDate = !isNaN(localDateTime.getTime());
 
-      if (isValidDate === false) {
+      if (!isValidDate) {
         toast.error("Invalid expiry date or time");
         return;
       }
 
-      const isFutureDate = expiresAtDate > new Date();
-      if (isFutureDate === false) {
+      const utcDateTime = new Date(
+        localDateTime.getTime() - localDateTime.getTimezoneOffset() * 60000
+      );
+      const isFutureDate = utcDateTime > new Date();
+
+      if (!isFutureDate) {
         toast.error("Expiration time must be in the future");
         return;
       }
 
-      payload.expires_at = expiresAtDate;
+      payload.expires_at = utcDateTime;
       payload.remove_expiry = false;
       hasChanges = true;
     }
 
     // Password handling with explicit flag
-    const linkHasPassword = link.hasPassword === true;
-    const userWantsPassword = usePasswordProtection === true;
+    const linkHasPassword = link.hasPassword;
+    const userWantsPassword = usePasswordProtection;
 
-    if (userWantsPassword === false && linkHasPassword === true) {
-      // User wants to remove password
+    if (!userWantsPassword && linkHasPassword) {
       payload.remove_password = true;
       hasChanges = true;
-    } else if (userWantsPassword === true) {
-      // User wants to set/update password
+    } else if (userWantsPassword) {
       const hasNewPasswordInput = trimmedPassword.length > 0;
-      const needsInitialPassword = linkHasPassword === false;
+      const needsInitialPassword = !linkHasPassword;
 
-      if (hasNewPasswordInput === true || needsInitialPassword === true) {
+      if (hasNewPasswordInput || needsInitialPassword) {
         const passwordLongEnough = trimmedPassword.length >= 4;
 
-        if (passwordLongEnough === false) {
+        if (!passwordLongEnough) {
           toast.error("Password must be at least 4 characters");
           return;
         }
@@ -219,19 +226,16 @@ export default function SharedLinkViewPage() {
       }
     }
 
-    // Check if there are changes to save
-    if (hasChanges === false) {
+    if (!hasChanges) {
       toast.info("No changes to save");
       return;
     }
 
     const res = await updateSharedLink(link.id, payload);
-    const saveSucceeded = res.success === true;
-
-    if (saveSucceeded === true) {
+    if (res.success) {
       toast.success("Changes saved successfully", { duration: 2000 });
       await fetchLinkData();
-      setPassword(""); // Clear password input after save
+      setPassword("");
     } else {
       toast.error(res.error || "Failed to save changes");
     }
@@ -240,7 +244,6 @@ export default function SharedLinkViewPage() {
   if (loading || !link) {
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header */}
         <div className="border-b border-border bg-card p-3 md:p-4 animate-in fade-in slide-in-from-top-2 duration-500">
           <div className="flex items-center gap-3 mb-4">
             <Button
@@ -261,8 +264,6 @@ export default function SharedLinkViewPage() {
             </div>
           </div>
         </div>
-
-        {/* Content */}
         <div className="flex-1 flex items-center justify-center">
           <p className="text-muted-foreground">
             Loading shared link details...
@@ -274,8 +275,7 @@ export default function SharedLinkViewPage() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="border-b border-border bg-card p-3 md:p-4 lg:p-6 animate-in fade-in slide-in-from-top-2 duration-500">
+      <div className="border-b border-border bg-card p-2 md:p-3 lg:p-4 animate-in fade-in slide-in-from-top-2 duration-500">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -295,14 +295,11 @@ export default function SharedLinkViewPage() {
           </div>
         </div>
       </div>
-
-      {/* Content - Responsive Grid Layout */}
       <div className="flex-1 overflow-auto">
         <div className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
-            {/* Left Section - File Info */}
             <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-left-2 duration-500 min-w-0">
-              <h2 className="text-sm md:text-base font-semibold text-foreground mb-4 md:mb-6">
+              <h2 className="text-sm md:text-base font-semibold text-foreground mb-2">
                 File Information
               </h2>
               <div className="space-y-4 md:space-y-5">
@@ -314,7 +311,6 @@ export default function SharedLinkViewPage() {
                     {link.name}
                   </p>
                 </div>
-
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-1.5">
                     File Size
@@ -323,7 +319,6 @@ export default function SharedLinkViewPage() {
                     {link.fileSize.value} {link.fileSize.unit}
                   </p>
                 </div>
-
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-1.5">
                     Object Key
@@ -332,7 +327,6 @@ export default function SharedLinkViewPage() {
                     {link.objectKey}
                   </p>
                 </div>
-
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-1.5">
                     Bucket
@@ -341,7 +335,6 @@ export default function SharedLinkViewPage() {
                     {link.bucket}
                   </p>
                 </div>
-
                 <div className="pt-3 md:pt-4 border-t border-border">
                   <p className="text-xs font-medium text-muted-foreground mb-1.5">
                     Created At
@@ -350,7 +343,6 @@ export default function SharedLinkViewPage() {
                     {link.createdAt}
                   </p>
                 </div>
-
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-1.5">
                     Downloads
@@ -361,14 +353,11 @@ export default function SharedLinkViewPage() {
                 </div>
               </div>
             </Card>
-
-            {/* Middle Section - Access Controls */}
             <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-bottom-2 duration-500 min-w-0">
-              <h2 className="text-sm md:text-base font-semibold text-foreground mb-4 md:mb-6">
+              <h2 className="text-sm md:text-base font-semibold text-foreground mb-2">
                 Access Controls
               </h2>
               <div className="space-y-4 md:space-y-5">
-                {/* Enable/Disable Link */}
                 <div className="flex items-center justify-between p-3 md:p-4 bg-muted rounded-lg">
                   <div className="flex items-center gap-2 md:gap-3 min-w-0">
                     {isEnabled ? (
@@ -392,8 +381,6 @@ export default function SharedLinkViewPage() {
                     {isEnabled ? "Disable" : "Enable"}
                   </Button>
                 </div>
-
-                {/* Expiry Toggle */}
                 <div className="flex items-center justify-between gap-4">
                   <label className="text-xs md:text-sm font-medium text-muted-foreground min-w-0">
                     Enable Expiry
@@ -404,8 +391,6 @@ export default function SharedLinkViewPage() {
                     className="data-[state=checked]:bg-primary flex-shrink-0"
                   />
                 </div>
-
-                {/* Expiry Date & Time - Conditional */}
                 {hasExpiry && (
                   <div className="space-y-4 animate-in fade-in duration-300">
                     <div>
@@ -419,7 +404,6 @@ export default function SharedLinkViewPage() {
                         className="text-sm w-full"
                       />
                     </div>
-
                     <div>
                       <label className="text-xs md:text-sm font-medium text-muted-foreground mb-2 block">
                         Expiry Time
@@ -433,8 +417,6 @@ export default function SharedLinkViewPage() {
                     </div>
                   </div>
                 )}
-
-                {/* Password Protection */}
                 <div>
                   <div className="flex items-center justify-between mb-3 gap-4">
                     <label className="text-xs md:text-sm font-medium text-muted-foreground flex-1 min-w-0">
@@ -474,7 +456,6 @@ export default function SharedLinkViewPage() {
                     </div>
                   )}
                 </div>
-
                 <Button
                   onClick={handleSaveChanges}
                   className="w-full mt-4 md:mt-6 transition-all hover:scale-105"
@@ -483,21 +464,15 @@ export default function SharedLinkViewPage() {
                 </Button>
               </div>
             </Card>
-
-            {/* Right Section - Share URL & QR Code */}
             <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-right-2 duration-500 min-w-0 lg:col-span-2 2xl:col-span-1">
-              <h2 className="text-sm md:text-base font-semibold text-foreground mb-4 md:mb-6">
+              <h2 className="text-sm md:text-base font-semibold text-foreground mb-2">
                 Share
               </h2>
               <div className="space-y-4 md:space-y-6">
-                {/* Share URL */}
-                {/* Share URL - Unified Mobile-Friendly Design */}
                 <div>
                   <p className="text-xs md:text-sm font-medium text-muted-foreground mb-2 md:mb-3">
                     Share URL
                   </p>
-
-                  {/* Clickable URL Display */}
                   <div
                     onClick={handleCopyLink}
                     className="group flex items-center gap-3 p-3 md:p-4 bg-muted hover:bg-muted/70 rounded-lg border border-border cursor-pointer active:scale-[0.98] transition-all min-h-[56px] md:min-h-[48px]"
@@ -515,8 +490,6 @@ export default function SharedLinkViewPage() {
                     </div>
                   </div>
                 </div>
-
-                {/* QR Code */}
                 <div>
                   <p className="text-xs md:text-sm font-medium text-muted-foreground mb-2 md:mb-3">
                     QR Code
@@ -540,8 +513,6 @@ export default function SharedLinkViewPage() {
                     )}
                   </div>
                 </div>
-
-                {/* Download QR Button */}
                 <Button
                   variant="outline"
                   onClick={handleDownloadQR}

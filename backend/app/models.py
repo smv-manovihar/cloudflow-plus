@@ -17,7 +17,7 @@ class SharedLink(Base):
     __tablename__ = "shared_links"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(String, ForeignKey("users.id"))
     name = Column(String, nullable=False)
     bucket = Column(String, nullable=False)
     object_key = Column(String, nullable=False)
@@ -37,7 +37,7 @@ class SharedLink(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, default=lambda: str(uuid.uuid4()), primary_key=True, index=True)
     name = Column(String, nullable=False)
     email = Column(String, nullable=False)
     password = Column(String, nullable=False)

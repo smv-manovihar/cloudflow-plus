@@ -30,7 +30,7 @@ class User(BaseModel):
 
 
 class ShowUser(BaseModel):
-    id: int
+    id: str
     name: str
     email: str
 

@@ -65,6 +65,7 @@ export default function PublicDownloadPage({
       if (status === 400) errorMsg = "Invalid link ID";
       else if (status === 404) errorMsg = "Shared link not found";
       setError({ status, message: errorMsg });
+      // console.error("Failed to download file:", error);
     }
   };
 

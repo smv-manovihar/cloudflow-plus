@@ -4,6 +4,7 @@ export interface S3File {
   size_bytes: number;
   synced: boolean;
 }
+
 export interface FileItem {
   name: string;
   size: { value: string; unit: string };
@@ -11,8 +12,10 @@ export interface FileItem {
   isFolder: boolean;
   key: string;
   synced: boolean;
+  bucket: string | null;
+  isShared: boolean;
+  sharedLinkId: string | null;
 }
-
 export interface PageCache {
   files: FileItem[];
   pagination: PaginationInfo | null;
