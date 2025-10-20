@@ -108,7 +108,11 @@ export function Sidebar({
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname === item.href;
+              const isActive =
+                item.href === "/"
+                  ? pathname === "/"
+                  : pathname.startsWith(item.href);
+
               return (
                 <div
                   key={item.href}
@@ -198,7 +202,11 @@ export function Sidebar({
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href;
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname.startsWith(item.href);
+
           return (
             <div
               key={item.href}

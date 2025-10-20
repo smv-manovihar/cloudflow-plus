@@ -1,18 +1,14 @@
 "use client";
 
 import type React from "react";
-
 import { useEffect, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Button } from "@/components/ui/button";
-import {
-  ChevronRight,
-  PanelLeftOpenIcon,
-  PanelLeftCloseIcon,
-} from "lucide-react";
+import { PanelLeftOpenIcon, PanelLeftCloseIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth.context";
+import { BreadcrumbNav } from "./breadcrumb-nav";
 
 const publicRoutes = ["/login", "/signup"];
 
@@ -33,22 +29,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     if (
       !isAuthenticated &&
       !publicRoutes.includes(pathname) &&
-      isPublicSharedDownload
+      !isPublicSharedDownload
     ) {
       router.push("/login");
     }
-  }, [, pathname, router]);
+  }, [isAuthenticated, authLoading, pathname, router]);
 
   useEffect(() => {
     setMounted(true);
-    // Load sidebar state from localStorage
     const saved = localStorage.getItem("sidebar-expanded");
     if (saved !== null) {
       setIsExpanded(JSON.parse(saved));
     }
-  }, [pathname, router]);
+  }, []);
 
-  // Check if mobile
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
@@ -91,41 +85,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  const getBreadcrumbs = () => {
-    const prefix = searchParams.get("prefix") || "";
-    const breadcrumbs = [];
-
-    // Add Home
-    breadcrumbs.push({ label: "Home", href: "/" });
-
-    // Add folder path from prefix
-    if (prefix) {
-      const parts = prefix.split("/").filter(Boolean);
-      let currentPath = "";
-      parts.forEach((part, index) => {
-        currentPath += part + "/";
-        breadcrumbs.push({
-          label: part,
-          href: `/?prefix=${encodeURIComponent(currentPath)}`,
-        });
-      });
-    }
-
-    // Add page-specific breadcrumbs
-    if (pathname.startsWith("/shared")) {
-      breadcrumbs.push({ label: "Shared Files", href: "/shared" });
-      if (pathname !== "/shared") {
-        breadcrumbs.push({ label: "Link Details", href: pathname });
-      }
-    } else if (pathname === "/settings") {
-      breadcrumbs.push({ label: "Settings", href: "/settings" });
-    }
-
-    return breadcrumbs;
-  };
-
-  const breadcrumbs = getBreadcrumbs();
-
   return (
     <div className="flex h-screen bg-background">
       <Sidebar
@@ -137,12 +96,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <main className="flex-1 flex flex-col overflow-hidden">
         <div className="border-b border-border bg-card px-4 md:px-3 py-3 animate-in fade-in slide-in-from-top-2 duration-500">
           <div className="flex items-center gap-4">
-            {/* Toggle button - mobile or desktop */}
             <Button
               variant="ghost"
               size="icon"
               onClick={isMobile ? toggleMobileMenu : toggleExpanded}
-              className="h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-accent"
+              className="h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-accent flex-shrink-0"
               aria-label={isMobile ? "Toggle menu" : "Toggle sidebar"}
             >
               {isMobile ? (
@@ -158,27 +116,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               )}
             </Button>
 
-            {/* Breadcrumbs */}
-            <div className="flex-1 flex items-center gap-1 text-sm flex-wrap">
-              {breadcrumbs.map((crumb, index) => (
-                <div key={crumb.href} className="flex items-center gap-1">
-                  {index > 0 && (
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  )}
-                  <Button
-                    variant="link"
-                    size="sm"
-                    onClick={() => router.push(crumb.href)}
-                    disabled={index === breadcrumbs.length - 1}
-                    className={cn(
-                      "h-auto p-0 font-medium",
-                      "disabled:text-foreground disabled:opacity-100 disabled:no-underline"
-                    )}
-                  >
-                    {crumb.label}
-                  </Button>
-                </div>
-              ))}
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <BreadcrumbNav />
             </div>
           </div>
         </div>

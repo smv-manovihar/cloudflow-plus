@@ -2,7 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Eye, EyeOff, Trash2, SettingsIcon } from "lucide-react";
+import {
+  Copy,
+  Eye,
+  EyeOff,
+  Trash2,
+  SettingsIcon,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -162,6 +169,7 @@ export function SharedLinks() {
       <div className="flex-1 overflow-auto">
         {isLoading ? (
           <div className="flex items-center justify-center h-full text-center animate-in fade-in duration-500">
+            <RefreshCw className="h-8, w-8 animate-spin" />
             <p className="text-sm font-medium text-foreground">Loading...</p>
           </div>
         ) : links.length === 0 ? (

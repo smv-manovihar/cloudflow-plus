@@ -36,103 +36,15 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { formatFileSize } from "@/utils/helpers";
-
-// Delete Dialog Component
-interface DeleteDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  fileData: FileItem | null;
-  deleteType: "local" | "aws";
-  isDeleting: boolean;
-  onDeleteTypeChange: (type: "local" | "aws") => void;
-  onDelete: () => void;
-}
-
-function DeleteDialog({
-  open,
-  onOpenChange,
-  fileData,
-  deleteType,
-  isDeleting,
-  onDeleteTypeChange,
-  onDelete,
-}: DeleteDialogProps) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-sm sm:max-w-md animate-in fade-in zoom-in-95 duration-300">
-        <DialogHeader>
-          <DialogTitle>Delete {fileData?.name}</DialogTitle>
-          <DialogDescription>
-            Are you sure you want to delete{" "}
-            <span className="font-semibold text-foreground">
-              {fileData?.name}
-            </span>
-            ? This action cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 mb-4">
-          <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2">
-            <Button
-              type="button"
-              variant={deleteType === "local" ? "default" : "outline"}
-              size="sm"
-              onClick={() => onDeleteTypeChange("local")}
-              className="flex-1"
-            >
-              Delete Local Only
-            </Button>
-            <Button
-              type="button"
-              variant={deleteType === "aws" ? "default" : "outline"}
-              size="sm"
-              onClick={() => onDeleteTypeChange("aws")}
-              className="flex-1"
-              disabled={fileData?.syncStatus !== "true"}
-            >
-              Delete from AWS Too
-              {fileData?.syncStatus === "true" ? "" : " (Not Synced)"}
-            </Button>
-          </div>
-          <p
-            className={cn(
-              "text-xs text-muted-foreground",
-              deleteType === "aws" && "text-destructive"
-            )}
-          >
-            {deleteType === "local"
-              ? "This will only remove the file from the local bucket."
-              : "This will remove the file from both local and AWS buckets."}
-          </p>
-        </div>
-        <div className="flex gap-3 justify-end">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isDeleting}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={onDelete}
-            disabled={isDeleting}
-            className="gap-2"
-          >
-            {isDeleting
-              ? "Deleting..."
-              : `Delete ${deleteType === "aws" ? "(AWS Too)" : ""}`}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
+import DeleteDialog from "./browser-delete-file-dialog";
+import { useBreadcrumbs } from "@/contexts/breadcrumbs.context";
 
 // Main FileBrowser Component
 export default function FileBrowser() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const prefix = searchParams.get("prefix") || "";
+  const { setBreadcrumbs } = useBreadcrumbs();
 
   const [currentPageData, setCurrentPageData] = useState<FileItem[]>([]);
   const [currentPagination, setCurrentPagination] =
@@ -250,6 +162,32 @@ export default function FileBrowser() {
       mounted = false;
     };
   }, [prefix, loadFiles]);
+
+  // Add this useEffect to handle breadcrumb updates when prefix changes
+  useEffect(() => {
+    const updateBreadcrumbs = () => {
+      const breadcrumbs = [{ label: "Home", href: "/" }];
+
+      if (prefix) {
+        // Split the prefix into parts and create breadcrumbs
+        const parts = prefix.split("/").filter(Boolean);
+        let currentPath = "";
+
+        parts.forEach((part) => {
+          currentPath += `${part}/`;
+          breadcrumbs.push({
+            label: decodeURIComponent(part),
+            href: `/?prefix=${encodeURIComponent(currentPath)}`,
+          });
+        });
+      }
+
+      // Use setBreadcrumbs instead of manually managing with add/pop
+      setBreadcrumbs(breadcrumbs);
+    };
+
+    updateBreadcrumbs();
+  }, [prefix, setBreadcrumbs]);
 
   const handleSync = async () => {
     setIsSyncing(true);
@@ -428,7 +366,8 @@ export default function FileBrowser() {
 
   const handleFolderClick = (folderName: string) => {
     const newPrefix = `${prefix}${folderName}/`;
-    router.push(`/?prefix=${encodeURIComponent(newPrefix)}`);
+    const encodedPrefix = encodeURIComponent(newPrefix);
+    router.push(`/?prefix=${encodedPrefix}`);
   };
 
   const handleFileClick = (fileName: string, fileKey: string) => {
@@ -465,6 +404,7 @@ export default function FileBrowser() {
     parts.pop();
     const newPrefix = parts.length > 0 ? parts.join("/") + "/" : "";
     router.push(newPrefix ? `/?prefix=${encodeURIComponent(newPrefix)}` : "/");
+    // Remove the manual breadcrumb management as it's now handled by the useEffect
   };
 
   const handleNextPage = useCallback(async () => {

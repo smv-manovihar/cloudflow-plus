@@ -11,6 +11,7 @@ import {
   Lora as V0_Font_Lora,
 } from "next/font/google";
 import { AuthProvider } from "@/contexts/auth.context";
+import { BreadcrumbsProvider } from "@/contexts/breadcrumbs.context";
 
 // Initialize fonts
 const _plusJakartaSans = V0_Font_Plus_Jakarta_Sans({
@@ -45,7 +46,9 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <Toaster position="top-right" />
           <AuthProvider>
-            <AppLayout>{children}</AppLayout>
+            <BreadcrumbsProvider>
+              <AppLayout>{children}</AppLayout>
+            </BreadcrumbsProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

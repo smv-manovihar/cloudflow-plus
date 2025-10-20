@@ -19,7 +19,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { downloadFile, getFileInfo, deleteFile } from "@/api/files.api";
 import {
   FileInfoErrorResponse,
@@ -32,7 +31,7 @@ import { createSharedLink } from "@/api/share.api";
 import { CreateSharedLinkPayload } from "@/types/share.types";
 import { formatFileSize } from "@/utils/helpers";
 import ShareDialog from "@/components/files-view/share-file-dialog";
-import DeleteDialog from "@/components/files-view/delete-file-dialog";
+import DeleteDialog from "@/components/files-view/file-delete-file-dialog";
 import PreviewDialog from "@/components/files-view/preview-dialog";
 
 // Header Component
@@ -112,7 +111,7 @@ function ActionButtons({
       <Button
         onClick={fileData.syncStatus === "false" ? onSync : undefined}
         disabled={isSyncPending || fileData.syncStatus !== "false"}
-        className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground animate-in fade-in slide-in-from-left-2 duration-500 hover:scale-105 transition-all duration-300"
+        className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground animate-in fade-in slide-in-from-left-2 hover:scale-105 transition-all duration-300"
         size="sm"
       >
         {fileData.syncStatus === "true" ? (
@@ -135,7 +134,7 @@ function ActionButtons({
       <Button
         onClick={onDownload}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2 duration-500 [animation-delay:100ms] bg-transparent hover:scale-105 transition-all duration-300"
+        className="gap-2 animate-in fade-in slide-in-from-left-2 [animation-delay:50ms] bg-transparent hover:scale-105 transition-all duration-300"
         size="sm"
       >
         <Download className="h-4 w-4" />
@@ -144,7 +143,7 @@ function ActionButtons({
       <Button
         onClick={onPreview}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2 duration-500 [animation-delay:200ms] bg-transparent hover:scale-105 transition-all duration-300"
+        className="gap-2 animate-in fade-in slide-in-from-left-2[animation-delay:100ms] bg-transparent hover:scale-105 transition-all duration-300"
         size="sm"
       >
         <Eye className="h-4 w-4" />
@@ -153,7 +152,7 @@ function ActionButtons({
       <Button
         onClick={onShare}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2 duration-500 [animation-delay:300ms] bg-transparent hover:scale-105 transition-all duration-300"
+        className="gap-2 animate-in fade-in slide-in-from-left-2[animation-delay:150ms] bg-transparent hover:scale-105 transition-all duration-300"
         size="sm"
       >
         <Share2 className="h-4 w-4" />
@@ -164,7 +163,7 @@ function ActionButtons({
       <Button
         onClick={onDelete}
         variant="outline"
-        className="gap-2 text-destructive hover:bg-destructive animate-in fade-in slide-in-from-left-2 duration-500 [animation-delay:400ms] hover:scale-105 transition-transform"
+        className="gap-2 text-destructive hover:bg-destructive animate-in fade-in slide-in-from-left-2 [animation-delay:200ms] hover:scale-105 transition-all duration-300"
         size="sm"
       >
         <Trash2 className="h-4 w-4" />
@@ -296,7 +295,8 @@ export default function FileDetailsPage() {
   const [expires, setExpires] = useState<string>("");
   const [password, setPassword] = useState<string>("");
 
-  // Fetch file info on mount
+  // Fetch file info on mount and set breadcrumbs
+  // page.tsx (partial, showing only the changed useEffect)
   useEffect(() => {
     const fetchFileInfo = async () => {
       if (!objectKey) {
