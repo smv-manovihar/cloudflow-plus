@@ -19,6 +19,7 @@ import {
   Cloud,
   CloudCheck,
   ChevronLeft,
+  CloudCog,
 } from "lucide-react";
 
 interface FileListProps {
@@ -183,15 +184,32 @@ export default function FileList({
                         e.stopPropagation();
                         onSyncFile(file.name, file.key);
                       }}
-                      disabled={syncingFiles.has(file.name) || file.synced}
-                      title={file.synced ? "Already synced" : "Sync this file"}
+                      disabled={
+                        syncingFiles.has(file.name) ||
+                        file.syncStatus !== "false"
+                      }
+                      title={
+                        file.syncStatus === "true"
+                          ? "Already synced"
+                          : file.syncStatus === "pending"
+                          ? "Pending"
+                          : "Sync this file"
+                      }
                       className="h-8 w-8 hover:scale-110 transition-transform"
                     >
-                      {file.synced ? (
+                      {file.syncStatus === "true" ? (
                         <CloudCheck
                           className={cn(
                             "h-4 w-4",
-                            file.synced && "text-green-600 dark:text-green-400"
+                            file.syncStatus === "true" &&
+                              "text-green-600 dark:text-green-400"
+                          )}
+                        />
+                      ) : file.syncStatus === "pending" ? (
+                        <CloudCog
+                          className={cn(
+                            "h-4 w-4",
+                            "text-orange-600 dark:text-orange-400"
                           )}
                         />
                       ) : (
@@ -249,10 +267,15 @@ export default function FileList({
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => onSyncFile(file.name, file.key)}
-                          disabled={syncingFiles.has(file.name) || file.synced}
+                          disabled={
+                            syncingFiles.has(file.name) ||
+                            file.syncStatus !== "false"
+                          }
                         >
-                          {!file.isFolder && file.synced ? (
+                          {!file.isFolder && file.syncStatus === "true" ? (
                             <CloudCheck className="h-4 w-4 mr-2 text-green-600 dark:text-green-400" />
+                          ) : file.syncStatus === "pending" ? (
+                            <CloudCog className="h-4 w-4 mr-2 text-orange-600 dark:text-orange-400" />
                           ) : (
                             <Cloud
                               className={cn(
@@ -264,7 +287,7 @@ export default function FileList({
                           )}
                           {syncingFiles.has(file.name)
                             ? "Syncing..."
-                            : file.synced
+                            : file.syncStatus === "true"
                             ? "Synced"
                             : "Sync"}
                         </DropdownMenuItem>
@@ -363,13 +386,18 @@ export default function FileList({
                           e.stopPropagation();
                           onSyncFile(file.name, file.key);
                         }}
-                        disabled={syncingFiles.has(file.name) || file.synced}
+                        disabled={
+                          syncingFiles.has(file.name) ||
+                          file.syncStatus === "true"
+                        }
                         title={
-                          file.synced ? "Already synced" : "Sync this file"
+                          file.syncStatus === "true"
+                            ? "Already synced"
+                            : "Sync this file"
                         }
                         className="h-8 w-8 hover:scale-110 transition-transform"
                       >
-                        {!file.isFolder && file.synced ? (
+                        {!file.isFolder && file.syncStatus === "true" ? (
                           <CloudCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
                         ) : (
                           <Cloud
@@ -377,7 +405,7 @@ export default function FileList({
                               "h-4 w-4",
                               syncingFiles.has(file.name) &&
                                 "animate-spin text-primary",
-                              file.synced &&
+                              file.syncStatus === "true" &&
                                 "text-green-600 dark:text-green-400"
                             )}
                           />

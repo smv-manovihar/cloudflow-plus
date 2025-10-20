@@ -177,7 +177,7 @@ export const getFileInfo = async (
         ? new Date(data.last_modified).toISOString()
         : "",
       aws_bucket: data.aws_bucket ?? "",
-      synced: Boolean(data.synced),
+      synced: data.synced as "pending" | "true" | "false",
       last_synced: data.last_synced ?? null,
       is_shared: Boolean(data.is_shared),
       shared_link_id: data.shared_link_id ?? null,
@@ -206,7 +206,7 @@ export const deleteFile = async (
       message: data?.message ?? "File deleted successfully.",
       bucket: data?.bucket ?? null,
       filename: data?.filename ?? objectKey,
-      synced: Boolean(data?.synced),
+      synced: data?.synced as "pending" | "true" | "false",
     };
   } catch (error) {
     return handleApiError(error, "An unknown error occurred while deleting the file.");

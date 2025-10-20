@@ -82,6 +82,41 @@ export const syncFile = async (
   }
 };
 
+export const syncBucketAsyncFile = async (
+  objectKey: string,
+  destinationBucket?: string,
+  sourceBucket?: string
+): Promise<SyncFileResultType> => {
+  try {
+    const payload: SyncFilePayload = {
+      source_bucket: sourceBucket,
+      destination_bucket: destinationBucket,
+      object_key: objectKey,
+    };
+
+    const { data } = await api.post("/sync/async/file", payload);
+
+    return {
+      success: true,
+      object_key: data.object_key ?? objectKey,
+    };
+  } catch (error) {
+    console.error("Error syncing file:", error);
+    const axiosError = error as AxiosError<{ detail?: string }>;
+    const errorMessage =
+      axiosError?.response?.data?.detail ||
+      axiosError?.message ||
+      "An unknown error occurred while syncing the file.";
+
+    return {
+      success: false,
+      error: errorMessage,
+      object_key: objectKey,
+    };
+  }
+};
+
+
 export const syncBucketAsync = async (): Promise<SyncBucketAsyncResultType> => {
   try {
     const { data } = await api.post("/sync/async");

@@ -1,4 +1,3 @@
-import { FileDetails } from "@/types/files.types";
 import {
   Dialog,
   DialogContent,
@@ -8,6 +7,7 @@ import {
 } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { cn } from "@/lib/utils";
+import { FileDetails } from "@/types/files.types";
 
 interface DeleteDialogProps {
   open: boolean;
@@ -57,10 +57,10 @@ export default function DeleteDialog({
               size="sm"
               onClick={() => onDeleteTypeChange("aws")}
               className="flex-1"
-              disabled={!fileData.isSynced}
+              disabled={fileData.syncStatus !== "true"}
             >
               Delete from AWS Too
-              {fileData.isSynced ? "" : " (Not Synced)"}
+              {fileData.syncStatus === "true" ? "" : " (Not Synced)"}
             </Button>
           </div>
           <p

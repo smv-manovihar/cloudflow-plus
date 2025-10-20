@@ -14,6 +14,7 @@ import {
   Loader2,
   Cloud,
   CloudCheck,
+  CloudCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -26,7 +27,7 @@ import {
   DeleteFileErrorResponse,
   FileDetails,
 } from "@/types/files.types";
-import { syncFile } from "@/api/sync.api";
+import { syncBucketAsyncFile, syncFile } from "@/api/sync.api";
 import { createSharedLink } from "@/api/share.api";
 import { CreateSharedLinkPayload } from "@/types/share.types";
 import { formatFileSize } from "@/utils/helpers";
@@ -37,9 +38,8 @@ import PreviewDialog from "@/components/files-view/preview-dialog";
 // Header Component
 interface HeaderProps {
   fileName: string;
-  objectKey: string;
   fileData: FileDetails;
-  isSyncing: boolean;
+  isSyncPending: boolean;
   onBack: () => void;
   onSync: () => void;
   onDownload: () => void;
@@ -49,9 +49,8 @@ interface HeaderProps {
 }
 function Header({
   fileName,
-  objectKey,
   fileData,
-  isSyncing,
+  isSyncPending,
   onBack,
   onSync,
   onDownload,
@@ -66,7 +65,7 @@ function Header({
           variant="ghost"
           size="icon"
           onClick={onBack}
-          className="hover:scale-110 transition-transform"
+          className="hover:scale-110 transition-all duration-300"
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -78,7 +77,7 @@ function Header({
       </div>
       <ActionButtons
         fileData={fileData}
-        isSyncing={isSyncing}
+        isSyncPending={isSyncPending}
         onSync={onSync}
         onDownload={onDownload}
         onPreview={onPreview}
@@ -92,7 +91,7 @@ function Header({
 // Action Buttons Component
 interface ActionButtonsProps {
   fileData: FileDetails;
-  isSyncing: boolean;
+  isSyncPending: boolean;
   onSync: () => void;
   onDownload: () => void;
   onPreview: () => void;
@@ -101,7 +100,7 @@ interface ActionButtonsProps {
 }
 function ActionButtons({
   fileData,
-  isSyncing,
+  isSyncPending,
   onSync,
   onDownload,
   onPreview,
@@ -111,29 +110,32 @@ function ActionButtons({
   return (
     <div className="flex flex-wrap gap-2 ml-2">
       <Button
-        onClick={!fileData.isSynced ? onSync : undefined}
-        disabled={isSyncing || fileData.isSynced}
-        className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground animate-in fade-in slide-in-from-left-2 duration-500"
+        onClick={fileData.syncStatus === "false" ? onSync : undefined}
+        disabled={isSyncPending || fileData.syncStatus !== "false"}
+        className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground animate-in fade-in slide-in-from-left-2 duration-500 hover:scale-105 transition-all duration-300"
         size="sm"
       >
-        {fileData.isSynced ? (
+        {fileData.syncStatus === "true" ? (
           <>
             <CloudCheck className="h-4 w-4" />
             <span className="hidden md:inline">Synced</span>
           </>
+        ) : fileData.syncStatus === "pending" ? (
+          <>
+            <CloudCog className="h-4 w-4" />
+            <span className="hidden md:inline">Pending</span>
+          </>
         ) : (
           <>
-            <Cloud className={cn("h-4 w-4", isSyncing && "animate-spin")} />
-            <span className="hidden md:inline">
-              {isSyncing ? "Syncing..." : "Sync"}
-            </span>
+            <Cloud className="h-4 w-4" />
+            <span className="hidden md:inline">Sync</span>
           </>
         )}
       </Button>
       <Button
         onClick={onDownload}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2 duration-500 delay-100 bg-transparent"
+        className="gap-2 animate-in fade-in slide-in-from-left-2 duration-500 [animation-delay:100ms] bg-transparent hover:scale-105 transition-all duration-300"
         size="sm"
       >
         <Download className="h-4 w-4" />
@@ -142,7 +144,7 @@ function ActionButtons({
       <Button
         onClick={onPreview}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2 duration-500 delay-150 bg-transparent"
+        className="gap-2 animate-in fade-in slide-in-from-left-2 duration-500 [animation-delay:200ms] bg-transparent hover:scale-105 transition-all duration-300"
         size="sm"
       >
         <Eye className="h-4 w-4" />
@@ -151,7 +153,7 @@ function ActionButtons({
       <Button
         onClick={onShare}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2 duration-500 delay-200 bg-transparent"
+        className="gap-2 animate-in fade-in slide-in-from-left-2 duration-500 [animation-delay:300ms] bg-transparent hover:scale-105 transition-all duration-300"
         size="sm"
       >
         <Share2 className="h-4 w-4" />
@@ -162,7 +164,7 @@ function ActionButtons({
       <Button
         onClick={onDelete}
         variant="outline"
-        className="gap-2 text-destructive hover:bg-destructive animate-in fade-in slide-in-from-left-2 duration-500 delay-250"
+        className="gap-2 text-destructive hover:bg-destructive animate-in fade-in slide-in-from-left-2 duration-500 [animation-delay:400ms] hover:scale-105 transition-transform"
         size="sm"
       >
         <Trash2 className="h-4 w-4" />
@@ -242,10 +244,14 @@ function StatusInfoCard({ fileData }: StatusInfoCardProps) {
             <span className="text-sm text-muted-foreground">Sync Status</span>
           </div>
           <span className="text-sm font-medium text-foreground">
-            {fileData.isSynced ? "Synced" : "Not Synced"}
+            {fileData.syncStatus === "pending"
+              ? "Pending"
+              : fileData.syncStatus === "true"
+              ? "Synced"
+              : "Not Synced"}
           </span>
         </div>
-        {fileData.isSynced && fileData.syncedBucket && (
+        {fileData.syncStatus === "true" && fileData.syncedBucket && (
           <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
             <div className="flex items-center gap-2">
               <HardDrive className="h-4 w-4 text-blue-600" />
@@ -281,7 +287,7 @@ export default function FileDetailsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fileData, setFileData] = useState<FileDetails | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncPending, setIsSyncPending] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
@@ -313,13 +319,14 @@ export default function FileDetailsPage() {
 
           const details: FileDetails = {
             name: fileName,
+            sizeBytes: fileSizeBytes,
             size: formatFileSize(fileSizeBytes),
             modified: new Date(apiData.last_modified).toLocaleString(),
             type: fileType,
             bucket: apiData.bucket || "",
             objectKey: apiData.object_key,
             isShared: apiData.is_shared || false,
-            isSynced: apiData.synced || false,
+            syncStatus: apiData.synced as "pending" | "true" | "false",
             lastSynced: apiData.last_synced
               ? new Date(apiData.last_synced).toLocaleString()
               : null,
@@ -328,6 +335,7 @@ export default function FileDetailsPage() {
           };
 
           setFileData(details);
+          setIsSyncPending(details.syncStatus === "pending");
         } else {
           const apiError = response as FileInfoErrorResponse;
           setError(apiError.error || "Failed to fetch file info");
@@ -358,26 +366,62 @@ export default function FileDetailsPage() {
   };
 
   const handleSync = async () => {
-    setIsSyncing(true);
-    const toastId = toast.loading(`Syncing ${fileData!.name}...`);
-    const res = await syncFile(fileData!.objectKey);
+    setIsSyncPending(true);
+
+    const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB in bytes
+    const isLargeFile = fileData!.sizeBytes > SIZE_THRESHOLD;
+
+    const toastId = toast.loading(
+      `${isLargeFile ? "Queuing" : "Syncing"} ${fileData!.name}...`
+    );
+
+    // Call appropriate sync method based on file size
+    const res = isLargeFile
+      ? await syncBucketAsyncFile(fileData!.objectKey)
+      : await syncFile(fileData!.objectKey);
+
     if (res.success) {
-      toast.success(`${fileData!.name} synced successfully`, {
-        id: toastId,
-        duration: 2000,
-      });
+      if (isLargeFile) {
+        toast.success(
+          `${fileData!.name} queued for sync. This may take a few minutes.`,
+          { id: toastId, duration: 4000 }
+        );
+        setFileData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            syncStatus: "pending",
+            lastSynced: new Date().toLocaleString(),
+          };
+        });
+      } else {
+        toast.success(`${fileData!.name} synced successfully`, {
+          id: toastId,
+          duration: 2000,
+        });
+        setFileData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            syncStatus: "true",
+            lastSynced: new Date().toLocaleString(),
+            syncedBucket: res.result?.status || prev.syncedBucket,
+          };
+        });
+      }
+      setIsSyncPending(false);
+    } else {
+      toast.error(res.error || "Sync failed", { id: toastId });
       setFileData((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
-          isSynced: true,
+          syncStatus: "false",
           lastSynced: new Date().toLocaleString(),
         };
       });
-    } else {
-      toast.error(res.error || "Sync failed", { id: toastId });
+      setIsSyncPending(false);
     }
-    setIsSyncing(false);
   };
 
   const handleDownload = async () => {
@@ -395,7 +439,7 @@ export default function FileDetailsPage() {
 
   const handleShare = () => {
     if (fileData!.isShared && fileData!.sharedLinkId) {
-      router.push(`/share/${fileData!.sharedLinkId}/view`);
+      router.push(`/shared/${fileData!.sharedLinkId}/view`);
     } else {
       setShowShareDialog(true);
     }
@@ -472,9 +516,8 @@ export default function FileDetailsPage() {
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       <Header
         fileName={fileData.name}
-        objectKey={fileData.objectKey}
         fileData={fileData}
-        isSyncing={isSyncing}
+        isSyncPending={isSyncPending}
         onBack={() => router.back()}
         onSync={handleSync}
         onDownload={handleDownload}

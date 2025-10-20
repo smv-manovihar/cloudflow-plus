@@ -83,10 +83,6 @@ export function UploadDropzone({
         });
 
         if (response.success) {
-          toast.success(
-            response.message || `Successfully uploaded ${totalFiles} file(s)`,
-            { id: uploadToast, duration: 5000 }
-          );
           if (folderToCreate && onFolderCreated) {
             onFolderCreated(folderToCreate);
           }

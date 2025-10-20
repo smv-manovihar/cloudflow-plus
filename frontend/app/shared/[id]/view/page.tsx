@@ -17,7 +17,7 @@ import { formatFileSize } from "@/utils/helpers";
 interface SharedLinkDetails {
   id: string;
   name: string;
-  fileSize: { value: string; unit: string };
+  fileSize: { value: number; unit: string };
   objectKey: string;
   bucket: string;
   link: string;

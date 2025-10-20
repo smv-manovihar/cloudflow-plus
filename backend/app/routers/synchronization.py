@@ -1,22 +1,29 @@
-from app.services.sync_service import (
-    sync_single_bucket,
-    sync_single_file as sync_file_service,
-    S3SyncError,
-)
-from app.core.config import BUCKET_NAME
 from fastapi import (
     APIRouter,
     HTTPException,
     status,
     BackgroundTasks,
+    Depends,
 )
 from pydantic import BaseModel
 import logging
+from app.services.sync_service import (
+    sync_single_bucket,
+    sync_single_file as sync_file_service,
+    S3SyncError,
+)
+from app.services.s3_service import minio_s3_client
+from app.core.config import BUCKET_NAME
+from app.schemas import User
+from app.oauth2 import get_current_user
+import uuid
+from urllib.parse import unquote
+from datetime import datetime, timezone
+from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sync", tags=["Sync"])
-
 
 # ------------------- PYDANTIC MODELS -------------------
 
@@ -37,63 +44,176 @@ class ErrorResponse(BaseModel):
     status_code: int
 
 
+# ------------------- HELPER FUNCTIONS -------------------
+
+
+def validate_uuid(user_id: str) -> None:
+    """
+    Validate that the provided user_id is a valid UUID.
+
+    Args:
+        user_id: The user ID to validate.
+
+    Raises:
+        HTTPException: If the user_id is not a valid UUID.
+    """
+    try:
+        uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid user ID format: must be a valid UUID",
+        )
+
+
+def get_user_prefix(user_id: str) -> str:
+    """
+    Construct the user-specific prefix for S3 keys.
+
+    Args:
+        user_id: The authenticated user's ID.
+
+    Returns:
+        The user prefix (e.g., 'user_id/').
+    """
+    return f"{user_id}/"
+
+
+def strip_user_prefix(full_key: str, user_prefix: str) -> str:
+    """
+    Strip the user prefix from a full S3 key to get the relative key.
+
+    Args:
+        full_key: The full S3 key (e.g., 'user_id/path/to/file.txt').
+        user_prefix: The user-specific prefix (e.g., 'user_id/').
+
+    Returns:
+        The relative key (e.g., 'path/to/file.txt').
+    """
+    if full_key.startswith(user_prefix):
+        return full_key[len(user_prefix) :]
+    return full_key
+
+
+def set_pending_metadata(local_bucket: str, key: str, user_id: str) -> None:
+    """
+    Set the object's metadata to indicate sync is pending.
+
+    Args:
+        local_bucket: The source bucket name.
+        key: The full S3 key (including user prefix).
+        user_id: The user ID for metadata.
+
+    Raises:
+        HTTPException: If metadata update fails.
+    """
+    from app.services.s3_service import minio_s3_client
+
+    try:
+        # Get current metadata
+        source_meta = minio_s3_client.head_object(Bucket=local_bucket, Key=key)
+        source_metadata = source_meta.get("Metadata", {})
+
+        # Update metadata with pending state
+        pending_metadata = {
+            **source_metadata,
+            "synced": "pending",
+            "last_synced": datetime.now(timezone.utc).isoformat(),
+            "user_id": user_id,
+        }
+        copy_source = {"Bucket": local_bucket, "Key": key}
+        minio_s3_client.copy_object(
+            Bucket=local_bucket,
+            Key=key,
+            CopySource=copy_source,
+            Metadata=pending_metadata,
+            MetadataDirective="REPLACE",
+        )
+        logger.info(f"Set pending metadata for '{key}' in bucket '{local_bucket}'")
+    except ClientError as ce:
+        error_code = ce.response.get("Error", {}).get("Code", "Unknown")
+        logger.error(f"Failed to set pending metadata for '{key}': {ce}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to set pending metadata: {error_code}",
+        )
+
+
 # ------------------- ENDPOINTS -------------------
 
 
 @router.post("/", status_code=status.HTTP_200_OK)
-def sync_bucket():
+def sync_bucket(current_user: User = Depends(get_current_user)):
     """
-    Synchronize the configured bucket from source to destination.
+    Synchronize the authenticated user's files in the configured bucket from source to destination.
 
     Returns:
-        - Summary of sync operation for the bucket including file counts and failures
+        - Summary of sync operation for the user's files including file counts and failures.
 
     Raises:
-        - HTTPException 404: If source bucket not found
-        - HTTPException 502: If sync operation fails
-        - HTTPException 500: For unexpected errors
+        - HTTPException 404: If source bucket or user prefix not found.
+        - HTTPException 502: If sync operation fails.
+        - HTTPException 500: For unexpected errors.
     """
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
+    user_prefix = get_user_prefix(current_user.id)
+
     try:
-        result = sync_single_bucket(BUCKET_NAME)
+        # Sync only the files under the user's prefix
+        result = sync_single_bucket(BUCKET_NAME, prefix=user_prefix)
+
+        # Process result to avoid exposing full keys
+        if "failed_files" in result:
+            result["failed_files"] = [
+                {
+                    "key": strip_user_prefix(file["key"], user_prefix),
+                    "error": file["error"],
+                }
+                for file in result["failed_files"]
+            ]
 
         # Check for bucket-level errors
         if "error" in result:
-            logger.error(f"Bucket sync failed for '{BUCKET_NAME}': {result['error']}")
-
-            # Check if it's a "not found" error
+            logger.error(
+                f"Bucket sync failed for '{BUCKET_NAME}/{user_prefix}': {result['error']}"
+            )
             if (
                 "not found" in result["error"].lower()
                 or "nosuchbucket" in result["error"].lower()
             ):
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Bucket '{BUCKET_NAME}' not found: {result['error']}",
+                    detail=f"Bucket '{BUCKET_NAME}' or user prefix '{user_prefix}' not found: {result['error']}",
                 )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Failed to sync bucket '{BUCKET_NAME}': {result['error']}",
-                )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to sync bucket '{BUCKET_NAME}' for user: {result['error']}",
+            )
 
         # Warn if some files failed
         if result.get("failed_files"):
             logger.warning(
-                f"Bucket '{BUCKET_NAME}' synced with {len(result['failed_files'])} file failures"
+                f"Bucket '{BUCKET_NAME}/{user_prefix}' synced with {len(result['failed_files'])} file failures"
             )
 
         return result
 
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except S3SyncError as e:
-        logger.error(f"S3 sync error for bucket '{BUCKET_NAME}': {str(e)}")
+        logger.error(
+            f"S3 sync error for bucket '{BUCKET_NAME}/{user_prefix}': {str(e)}"
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to sync bucket '{BUCKET_NAME}': {str(e)}",
+            detail=f"Failed to sync bucket for user: {str(e)}",
         )
     except Exception as e:
-        logger.exception(f"Unexpected error syncing bucket '{BUCKET_NAME}': {str(e)}")
+        logger.exception(
+            f"Unexpected error syncing bucket '{BUCKET_NAME}/{user_prefix}': {str(e)}"
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred: {str(e)}",
@@ -101,23 +221,26 @@ def sync_bucket():
 
 
 @router.post("/file", status_code=status.HTTP_200_OK)
-def sync_file(payload: SyncFileRequest):
+def sync_file(payload: SyncFileRequest, current_user: User = Depends(get_current_user)):
     """
-    Synchronize a single file from the configured source bucket to destination bucket.
+    Synchronously synchronize a single file from the authenticated user's prefix in the source bucket to destination bucket.
 
     Args:
-        payload: Request containing destination_bucket and object_key
+        payload: Request containing destination_bucket and object_key.
 
     Returns:
-        - Status of sync operation: "synced", "updated", "skipped", or "failed"
-        - Object key and error details if failed
+        - Status of sync operation: "synced", "updated", "skipped", or "failed".
+        - Relative object key and error details if failed.
 
     Raises:
-        - HTTPException 400: If request parameters are invalid
-        - HTTPException 404: If source file not found
-        - HTTPException 502: If sync operation fails
-        - HTTPException 500: For unexpected errors
+        - HTTPException 400: If request parameters are invalid.
+        - HTTPException 404: If source file not found.
+        - HTTPException 502: If sync operation fails.
+        - HTTPException 500: For unexpected errors.
     """
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
     # Validate inputs
     if not payload.destination_bucket or payload.destination_bucket.strip() == "":
         raise HTTPException(
@@ -127,19 +250,48 @@ def sync_file(payload: SyncFileRequest):
 
     if not payload.object_key or payload.object_key.strip() == "":
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Object key cannot be empty"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Object key cannot be empty",
         )
+
+    # Decode object_key and construct full user-specific key
+    object_key = unquote(payload.object_key)
+    user_object_key = f"{current_user.id}/{object_key}"
+
+    # Check if file exists
+    try:
+        minio_s3_client.head_object(Bucket=BUCKET_NAME, Key=user_object_key)
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code")
+        if error_code in ["NoSuchKey", "404"]:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"File '{object_key}' not found in bucket '{BUCKET_NAME}'",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to access file: {e}",
+        )
+
+    # Set pending metadata before sync
+    set_pending_metadata(BUCKET_NAME, user_object_key, current_user.id)
 
     try:
         result = sync_file_service(
-            BUCKET_NAME, payload.destination_bucket, payload.object_key
+            BUCKET_NAME, payload.destination_bucket, user_object_key, current_user.id
         )
+
+        # Update result to use relative key
+        if "key" in result:
+            result["key"] = strip_user_prefix(
+                result["key"], get_user_prefix(current_user.id)
+            )
 
         # Check if the operation failed
         if result.get("status") == "failed":
             error_detail = result.get("error", "Unknown error")
             logger.error(
-                f"File sync failed: {payload.object_key} from {BUCKET_NAME} "
+                f"File sync failed: {object_key} from {BUCKET_NAME} "
                 f"to {payload.destination_bucket}: {error_detail}"
             )
 
@@ -150,7 +302,7 @@ def sync_file(payload: SyncFileRequest):
             ):
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"File not found: {error_detail}",
+                    detail=f"File '{object_key}' not found: {error_detail}",
                 )
             elif "access denied" in error_detail.lower():
                 raise HTTPException(
@@ -166,36 +318,114 @@ def sync_file(payload: SyncFileRequest):
         return result
 
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except S3SyncError as e:
-        logger.error(f"S3 sync error for file '{payload.object_key}': {str(e)}")
+        logger.error(f"S3 sync error for file '{object_key}': {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to sync file: {str(e)}",
+            detail=f"Failed to sync file '{object_key}': {str(e)}",
         )
     except Exception as e:
-        logger.exception(
-            f"Unexpected error syncing file '{payload.object_key}': {str(e)}"
-        )
+        logger.exception(f"Unexpected error syncing file '{object_key}': {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred: {str(e)}",
         )
 
 
-@router.post("/async", status_code=status.HTTP_202_ACCEPTED)
-async def sync_bucket_async(background_tasks: BackgroundTasks):
+@router.post("/async/file", status_code=status.HTTP_202_ACCEPTED)
+async def sync_file_async(
+    payload: SyncFileRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+):
     """
-    Asynchronously synchronize the configured bucket in the background.
+    Asynchronously synchronize a single file from the authenticated user's prefix in the source bucket to destination bucket.
+
+    Args:
+        payload: Request containing destination_bucket and object_key.
+        background_tasks: FastAPI BackgroundTasks for async execution.
+
+    Returns:
+        - Confirmation that the sync operation has been queued.
+
+    Raises:
+        - HTTPException 400: If request parameters are invalid.
+        - HTTPException 404: If source file not found.
+        - HTTPException 500: If metadata update or other unexpected errors occur.
+    """
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
+    # Validate inputs
+    if not payload.destination_bucket or payload.destination_bucket.strip() == "":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Destination bucket name cannot be empty",
+        )
+
+    if not payload.object_key or payload.object_key.strip() == "":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Object key cannot be empty",
+        )
+
+    # Decode object_key and construct full user-specific key
+    object_key = unquote(payload.object_key)
+    user_object_key = f"{current_user.id}/{object_key}"
+
+    # Check if file exists
+    try:
+        minio_s3_client.head_object(Bucket=BUCKET_NAME, Key=user_object_key)
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code")
+        if error_code in ["NoSuchKey", "404"]:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"File '{object_key}' not found in bucket '{BUCKET_NAME}'",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to access file: {e}",
+        )
+
+    # Set pending metadata before queuing the task
+    set_pending_metadata(BUCKET_NAME, user_object_key, current_user.id)
+
+    # Queue the sync task
+    background_tasks.add_task(
+        sync_file_service,
+        BUCKET_NAME,
+        payload.destination_bucket,
+        user_object_key,
+        current_user.id,
+    )
+
+    return {
+        "status": "accepted",
+        "message": f"Sync operation for file '{object_key}' in bucket '{BUCKET_NAME}' started in background. Check logs for progress.",
+        "key": object_key,
+    }
+
+
+@router.post("/async", status_code=status.HTTP_202_ACCEPTED)
+async def sync_bucket_async(
+    background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)
+):
+    """
+    Asynchronously synchronize the authenticated user's files in the configured bucket.
 
     Returns immediately with 202 Accepted status.
     Useful for large sync operations that may take a long time.
 
     Note: Consider using Celery or similar for production long-running tasks.
     """
-    background_tasks.add_task(sync_single_bucket, BUCKET_NAME)
+    # Validate user_id as UUID
+    validate_uuid(current_user.id)
+
+    user_prefix = get_user_prefix(current_user.id)
+    background_tasks.add_task(sync_single_bucket, BUCKET_NAME, prefix=user_prefix)
     return {
         "status": "accepted",
-        "message": f"Sync operation for bucket '{BUCKET_NAME}' started in background. Check logs for progress.",
+        "message": f"Sync operation for bucket '{BUCKET_NAME}' under user prefix '{user_prefix}' started in background. Check logs for progress.",
     }

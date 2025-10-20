@@ -2,19 +2,22 @@ export interface S3File {
   key: string;
   last_modified: string;
   size_bytes: number;
-  synced: boolean;
+  synced: "pending" | "true" | "false";
 }
 
 export interface FileItem {
   name: string;
-  size: { value: string; unit: string };
+  size: { value: number; unit: string };
+  sizeBytes: number;
   modified: string;
   isFolder: boolean;
   key: string;
-  synced: boolean;
+  syncStatus: "pending" | "true" | "false";
   bucket: string | null;
   isShared: boolean;
   sharedLinkId: string | null;
+  lastSynced: string | null;
+  syncedBucket: string | null;
 }
 export interface PageCache {
   files: FileItem[];
@@ -79,7 +82,7 @@ export interface FileInfoResponse {
   content_length: number;
   last_modified: string;
   aws_bucket: string | null;
-  synced: boolean;
+  synced: "pending" | "true" | "false";
   last_synced: string | null;
   is_shared: boolean;
   shared_link_id: string;
@@ -95,7 +98,7 @@ export interface DeleteFileResponse {
   message: string;
   bucket: string;
   filename: string;
-  synced: boolean;
+  synced: "pending" | "true" | "false";
 }
 
 export interface DeleteFileErrorResponse {
@@ -130,14 +133,15 @@ export interface UploadFilesErrorResponse {
 
 export interface FileDetails {
   name: string;
-  size: { value: string; unit: string };
+  sizeBytes: number;
+  size: { value: number; unit: string };
   modified: string;
   type: string;
   bucket: string;
   objectKey: string;
   isShared: boolean;
-  isSynced: boolean;
+  syncStatus: "pending" | "true" | "false";
   lastSynced: string | null;
-  syncedBucket?: string | null;
+  syncedBucket: string | null;
   sharedLinkId: string | null;
 }

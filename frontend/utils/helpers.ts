@@ -1,7 +1,7 @@
-export function formatFileSize(bytes: number): { value: string; unit: string } {
+export function formatFileSize(bytes: number): { value: number; unit: string } {
   // Handle zero or negative bytes
   if (bytes <= 0) {
-    return { value: "0", unit: "B" };
+    return { value: 0, unit: "B" };
   }
 
   const units = ["B", "KB", "MB", "GB"];
@@ -14,11 +14,11 @@ export function formatFileSize(bytes: number): { value: string; unit: string } {
     i++;
   }
 
-  // Format value to 2 decimal places if not in bytes, otherwise no decimals
-  const formattedValue = i === 0 ? bytes.toFixed(0) : bytes.toFixed(2);
+  // Round value to 2 decimal places if not in bytes, otherwise no decimals
+  const value = i === 0 ? Math.round(bytes) : Math.round(bytes * 100) / 100;
 
   return {
-    value: formattedValue,
+    value,
     unit: units[i],
   };
 }

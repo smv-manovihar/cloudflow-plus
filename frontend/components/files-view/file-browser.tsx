@@ -12,7 +12,7 @@ import {
   UploadFilesErrorResponse,
   UploadFilesResponse,
 } from "@/types/files.types";
-import { syncBucket, syncFile } from "@/api/sync.api";
+import { syncFile, syncBucketAsyncFile, syncBucketAsync } from "@/api/sync.api";
 import FileList from "./files-list";
 import PaginationControls from "../layout/pagination-controls";
 import { Button } from "../ui/button";
@@ -87,10 +87,10 @@ function DeleteDialog({
               size="sm"
               onClick={() => onDeleteTypeChange("aws")}
               className="flex-1"
-              disabled={!fileData?.synced}
+              disabled={fileData?.syncStatus !== "true"}
             >
               Delete from AWS Too
-              {fileData?.synced ? "" : " (Not Synced)"}
+              {fileData?.syncStatus === "true" ? "" : " (Not Synced)"}
             </Button>
           </div>
           <p
@@ -176,15 +176,18 @@ export default function FileBrowser() {
           return {
             name,
             size,
+            sizeBytes: f.size_bytes || 0,
             modified: f.last_modified
               ? new Date(f.last_modified).toLocaleDateString()
               : "",
             isFolder,
             key: f.key,
-            synced: Boolean(f.synced),
+            syncStatus: f.synced as "pending" | "true" | "false",
             bucket,
             isShared: false,
             sharedLinkId: null,
+            lastSynced: null,
+            syncedBucket: null,
           };
         });
     },
@@ -251,7 +254,7 @@ export default function FileBrowser() {
   const handleSync = async () => {
     setIsSyncing(true);
     const toastId = toast.loading("Syncing all files...");
-    const res = await syncBucket();
+    const res = await syncBucketAsync();
     if (res.success) {
       handleRefresh();
       toast.success("Sync completed", {
@@ -270,21 +273,67 @@ export default function FileBrowser() {
   const handleSyncFile = async (fileName: string, fileKey: string) => {
     setSyncingFiles((prev) => new Set(prev).add(fileName));
     const toastId = toast.loading(`Syncing ${fileName}...`);
-    const res = await syncFile(fileKey);
+
+    const file = currentPageData.find((f) => f.key === fileKey);
+    const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB in bytes
+    const isLargeFile = file ? file.sizeBytes > SIZE_THRESHOLD : false;
+
+    const res = isLargeFile
+      ? await syncBucketAsyncFile(fileKey)
+      : await syncFile(fileKey);
+
     if (res.success) {
-      setCurrentPageData((prev) =>
-        prev.map((f) => (f.key === fileKey ? { ...f, synced: true } : f))
-      );
+      if (isLargeFile) {
+        setCurrentPageData((prev) =>
+          prev.map((f) =>
+            f.key === fileKey
+              ? {
+                  ...f,
+                  syncStatus: "pending",
+                  lastSynced: new Date().toLocaleString(),
+                }
+              : f
+          )
+        );
+        toast.success(
+          `${fileName} queued for sync. This may take a few minutes.`,
+          { id: toastId, duration: 4000 }
+        );
+      } else {
+        setCurrentPageData((prev) =>
+          prev.map((f) =>
+            f.key === fileKey
+              ? {
+                  ...f,
+                  syncStatus: "true",
+                  lastSynced: new Date().toLocaleString(),
+                  syncedBucket: res.result?.status || f.syncedBucket,
+                }
+              : f
+          )
+        );
+        toast.success(`${fileName} synced`, {
+          id: toastId,
+          duration: 2000,
+        });
+      }
       setSyncingFiles((prev) => {
         const next = new Set(prev);
         next.delete(fileName);
         return next;
       });
-      toast.success(`${fileName} synced`, {
-        id: toastId,
-        duration: 2000,
-      });
     } else {
+      setCurrentPageData((prev) =>
+        prev.map((f) =>
+          f.key === fileKey
+            ? {
+                ...f,
+                syncStatus: "false",
+                lastSynced: new Date().toLocaleString(),
+              }
+            : f
+        )
+      );
       setSyncingFiles((prev) => {
         const next = new Set(prev);
         next.delete(fileName);

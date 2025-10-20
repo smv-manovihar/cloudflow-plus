@@ -62,7 +62,7 @@ export default function ShareDialog({
                 onChange={(e) => onExpiresChange(e.target.value)}
                 className="w-full"
                 min={new Date().toISOString().slice(0, 16)} // Restrict to future dates
-                disabled={!fileData.isSynced}
+                disabled={fileData.syncStatus !== "true"}
               />
             </div>
             <div className="space-y-2">
@@ -77,7 +77,7 @@ export default function ShareDialog({
                 value={password}
                 onChange={(e) => onPasswordChange(e.target.value)}
                 className="w-full"
-                disabled={!fileData.isSynced}
+                disabled={fileData.syncStatus !== "true"}
               />
             </div>
           </div>
@@ -86,10 +86,12 @@ export default function ShareDialog({
               Cancel
             </Button>
             <Button
-              onClick={fileData.isSynced ? onCreateShareLink : () => {}}
+              onClick={
+                fileData.syncStatus === "true" ? onCreateShareLink : () => {}
+              }
               className="gap-2 bg-primary hover:bg-primary/90"
               disabled={
-                !fileData.isSynced ||
+                fileData.syncStatus !== "true" ||
                 !fileData.bucket ||
                 !objectKey ||
                 !isValidExpiry

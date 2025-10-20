@@ -69,9 +69,7 @@ def is_synced_via_etag(bucket_name: str, object_key: str) -> bool:
         return minio_etag == aws_etag
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
-        if error_code in ["NoSuchKey", "404"]:
-            return False
-        if error_code == "NoSuchBucket":
+        if error_code in ["NoSuchKey", "404", "NoSuchBucket"]:
             return False
         raise HTTPException(status_code=500, detail=f"AWS S3 check error: {error_code}")
     except Exception as e:
@@ -80,9 +78,20 @@ def is_synced_via_etag(bucket_name: str, object_key: str) -> bool:
 
 def is_synced_via_metadata(
     bucket_name: str, object_key: str, head_response: Optional[Dict[str, Any]] = None
-) -> bool:
+) -> str:
     """
-    Checks if an object in MinIO is synced to AWS by inspecting the 'synced' metadata flag.
+    Retrieves the sync status from the 'synced' metadata flag ('pending', 'true', or 'false').
+
+    Args:
+        bucket_name: The bucket name.
+        object_key: The object key.
+        head_response: Optional pre-fetched head response to avoid redundant calls.
+
+    Returns:
+        str: The sync status ('pending', 'true', 'false', or 'false' if metadata is missing).
+
+    Raises:
+        HTTPException: On S3 errors other than not found.
     """
     response = head_response
     if response is None:
@@ -90,10 +99,8 @@ def is_synced_via_metadata(
             response = minio_s3_client.head_object(Bucket=bucket_name, Key=object_key)
         except ClientError as e:
             error_code = e.response["Error"]["Code"]
-            if error_code in ["NoSuchKey", "404"]:
-                return False
-            if error_code == "NoSuchBucket":
-                return False
+            if error_code in ["NoSuchKey", "404", "NoSuchBucket"]:
+                return "false"
             raise HTTPException(
                 status_code=500, detail=f"MinIO metadata check error: {error_code}"
             )
@@ -102,7 +109,7 @@ def is_synced_via_metadata(
                 status_code=500, detail=f"Sync status check error: {str(e)}"
             )
     user_metadata = response.get("Metadata", {})
-    return user_metadata.get("synced") == "true"
+    return user_metadata.get("synced", "false")
 
 
 def relative_name(key: str, user_prefix: str, prefix: Optional[str] = None) -> str:
@@ -193,7 +200,7 @@ async def list_files_in_bucket(
                     "display_key": name,
                     "last_modified": datetime.now(timezone.utc).isoformat(),
                     "size_bytes": 0,
-                    "synced": False,
+                    "synced": "false",  # Folders don't have sync status
                     "last_synced": None,
                 }
             )
@@ -307,13 +314,13 @@ async def upload_file_to_bucket(
                 )
                 size_bytes = metadata["ContentLength"]
                 last_modified = metadata["LastModified"].isoformat()
-                user_meta = metadata.get("Metadata", {})
-                confirmed_synced = user_meta.get("synced") == "true"
-                last_synced = user_meta.get("last_synced")
+                user_metadata = metadata.get("Metadata", {})
+                confirmed_synced = user_metadata.get("synced", "false")
+                last_synced = user_metadata.get("last_synced")
             except ClientError as meta_err:
                 size_bytes = 0
                 last_modified = datetime.now(timezone.utc).isoformat()
-                confirmed_synced = False
+                confirmed_synced = "false"
                 last_synced = None
 
             results.append(
@@ -423,7 +430,7 @@ async def get_file_info(
             last_modified = head["LastModified"].isoformat()
         user_metadata = head.get("Metadata", {})
         bucket = user_metadata.get("bucket") or BUCKET_NAME
-        aws_bucket = user_metadata.get("aws_bucket") if synced else None
+        aws_bucket = user_metadata.get("aws_bucket") if synced == "true" else None
         last_synced = user_metadata.get("last_synced")
 
         return JSONResponse(
@@ -543,7 +550,7 @@ async def handle_file_request(
 
         headers = {
             "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Synced-To-AWS": str(synced).lower(),
+            "X-Synced-To-AWS": synced,  # Reflects 'pending', 'true', or 'false'
             "Accept-Ranges": "bytes",
             "X-User-Id": str(current_user.id),
             "Cache-Control": "public, max-age=3600",
@@ -672,7 +679,10 @@ async def delete_file_from_bucket(
     user_object_key = f"{current_user.id}/{object_key}"
 
     try:
-        synced = is_synced_via_metadata(BUCKET_NAME, user_object_key)
+        head_response = minio_s3_client.head_object(
+            Bucket=BUCKET_NAME, Key=user_object_key
+        )
+        synced = is_synced_via_metadata(BUCKET_NAME, user_object_key, head_response)
         minio_s3_client.delete_object(Bucket=BUCKET_NAME, Key=user_object_key)
         if sync:
             aws_s3_client.delete_object(Bucket=BUCKET_NAME, Key=user_object_key)
