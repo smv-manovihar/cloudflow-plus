@@ -52,6 +52,11 @@ export const verifyUser = async (): Promise<ApiResponse<User>> => {
       data: response.data,
     };
   } catch (error) {
+    // Don't log 401 errors for verification as they're expected when not authenticated
+    const axiosError = error as any;
+    if (axiosError?.response?.status === 401) {
+      return { success: false, error: "Not authenticated" };
+    }
     return handleApiError(error, "Failed to verify user") as ApiResponse<User>;
   }
 };

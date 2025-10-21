@@ -31,7 +31,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       !publicRoutes.includes(pathname) &&
       !isPublicSharedDownload
     ) {
-      router.push("/login");
+      router.replace("/login");
     }
   }, [isAuthenticated, authLoading, pathname, router]);
 

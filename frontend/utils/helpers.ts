@@ -38,8 +38,13 @@ export const handleApiError = (
   const axiosError = error as AxiosError<{ detail?: string; message?: string }>;
 
   // Don't log 401 or 404 errors to console to prevent confusion
+  // Also don't log errors that are handled elsewhere (like session expired)
   if (axiosError?.response?.status !== 401 && axiosError?.response?.status !== 404) {
-    console.error(defaultMessage, error);
+    // Check if this is a session expired error from the interceptor
+    const errorMessage = axiosError?.message || "";
+    if (!errorMessage.includes("Session expired")) {
+      console.error(defaultMessage, error);
+    }
   }
 
   const detail = axiosError?.response?.data?.detail;

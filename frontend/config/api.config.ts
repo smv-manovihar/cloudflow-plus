@@ -44,9 +44,6 @@ const processQueue = (error: unknown, token: string | null = null) => {
 // Function to refresh the token
 const refreshToken = async (): Promise<string | null> => {
   try {
-    // Mark that we had a refresh token when we attempt to use it
-    hadRefreshToken = true;
-
     const response = await axios.post(
       `${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`,
       {},
@@ -54,11 +51,13 @@ const refreshToken = async (): Promise<string | null> => {
     );
     // Since the backend sets the token in cookies, check for successful response status
     if (response.status === 200) {
+      // Mark that we had a refresh token only on successful refresh
+      hadRefreshToken = true;
       return "refreshed"; // Return a non-null value to indicate success
     }
     return null;
   } catch {
-    // Token refresh failed - show session expired toast if we had a refresh token
+    // Token refresh failed - show session expired toast only if we previously had a refresh token
     if (hadRefreshToken) {
       toast.error("Session expired. Please log in again.", {
         duration: 5000,
@@ -112,26 +111,13 @@ api.interceptors.response.use(
           return api(originalRequest);
         } else {
           processQueue(error, null);
-          // If refresh fails, redirect to login or handle as needed
-          if (typeof window !== 'undefined') {
-            // Use a small delay to allow the toast to be shown before redirect
-            setTimeout(() => {
-              window.location.href = '/login';
-            }, 100);
-          }
           // Return a silent rejection to prevent Next.js error display
-          return Promise.reject(new Error('Session expired - redirecting to login'));
+          return Promise.reject(new Error('Session expired'));
         }
       } catch (refreshError) {
         processQueue(refreshError, null);
-        if (typeof window !== 'undefined') {
-          // Use a small delay to allow the toast to be shown before redirect
-          setTimeout(() => {
-            window.location.href = '/login';
-          }, 100);
-        }
         // Return a silent rejection to prevent Next.js error display
-        return Promise.reject(new Error('Session expired - redirecting to login'));
+        return Promise.reject(new Error('Session expired'));
       } finally {
         isRefreshing = false;
       }
