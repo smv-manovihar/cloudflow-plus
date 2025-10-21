@@ -15,13 +15,13 @@ from fastapi.routing import APIRouter
 from typing import Optional, List, Dict, Any, Generator, Union
 import os
 from urllib.parse import unquote
-import uuid
 import logging
 from datetime import datetime, timezone
 
 from app.services.s3_service import minio_s3_client, aws_s3_client
 from app.database import get_db
 from app.models import SharedLink
+from app.utils import to_utc_iso, validate_uuid, relative_name
 from app.schemas import User
 from app.core.config import BUCKET_NAME
 from app.oauth2 import get_current_user
@@ -36,51 +36,6 @@ router = APIRouter(prefix="/files", tags=["Files"])
 # ============================================================================
 # Helper Functions
 # ============================================================================
-
-
-def to_utc_iso(dt: datetime) -> str:
-    """
-    Convert datetime to UTC ISO 8601 format with 'Z' suffix.
-
-    Args:
-        dt: datetime object (can be timezone-aware or naive)
-
-    Returns:
-        ISO 8601 string with 'Z' suffix (e.g., '2025-10-20T18:39:00Z')
-    """
-    if dt is None:
-        return None
-
-    # If datetime is naive, assume it's UTC
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-
-    # Convert to UTC if it's in a different timezone
-    dt_utc = dt.astimezone(timezone.utc)
-
-    # Format as ISO string and replace +00:00 with Z
-    return dt_utc.isoformat().replace("+00:00", "Z")
-
-
-def validate_uuid(user_id: Union[str, int]) -> None:
-    """
-    Validate that the provided user_id is a valid UUID.
-
-    Args:
-        user_id: The user ID to validate.
-
-    Raises:
-        HTTPException: If the user_id is not a valid UUID.
-    """
-    try:
-        if isinstance(user_id, int):
-            user_id = str(user_id)
-        uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid user ID format: must be a valid UUID",
-        )
 
 
 def is_synced_via_etag(bucket_name: str, object_key: str) -> bool:
@@ -136,29 +91,6 @@ def is_synced_via_metadata(
             )
     user_metadata = response.get("Metadata", {})
     return user_metadata.get("synced", "false")
-
-
-def relative_name(key: str, user_prefix: str, prefix: Optional[str] = None) -> str:
-    """
-    Compute the relative path for a key, preserving slashes for folders.
-
-    Args:
-        key: The full S3 key or prefix.
-        user_prefix: The user-specific prefix (e.g., 'user_id/').
-        prefix: Optional prefix filter (e.g., 'folder/').
-
-    Returns:
-        The relative path with trailing slash for folders.
-    """
-    base = user_prefix
-    if prefix:
-        base += prefix
-    if base and key.startswith(base):
-        relative = key[len(base) :]
-        if key.endswith("/"):
-            return relative
-        return relative.rstrip("/")
-    return key.rstrip("/") if key.endswith("/") else key
 
 
 # ============================================================================
@@ -686,7 +618,7 @@ async def head_file_from_bucket(
 @router.delete("/{object_key:path}", status_code=status.HTTP_200_OK)
 async def delete_file_from_bucket(
     object_key: str,
-    sync: bool,
+    sync: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
@@ -703,23 +635,55 @@ async def delete_file_from_bucket(
     user_object_key = f"{current_user.id}/{object_key}"
 
     try:
-        head_response = minio_s3_client.head_object(
-            Bucket=BUCKET_NAME, Key=user_object_key
-        )
-        synced = is_synced_via_metadata(BUCKET_NAME, user_object_key, head_response)
-        minio_s3_client.delete_object(Bucket=BUCKET_NAME, Key=user_object_key)
-        if sync:
+        synced = False
+        if sync == "local" or sync == "both":
+            head_response = minio_s3_client.head_object(
+                Bucket=BUCKET_NAME, Key=user_object_key
+            )
+            synced = is_synced_via_metadata(BUCKET_NAME, user_object_key, head_response)
+            minio_s3_client.delete_object(Bucket=BUCKET_NAME, Key=user_object_key)
+        if sync == "aws":
             aws_s3_client.delete_object(Bucket=BUCKET_NAME, Key=user_object_key)
+            if sync != "both":
+                try:
+                    # Get current metadata
+                    source_meta = minio_s3_client.head_object(
+                        Bucket=BUCKET_NAME, Key=user_object_key
+                    )
+                    source_metadata = source_meta.get("Metadata", {})
+                    # Update metadata to reflect deletion from AWS
+                    minio_metadata = {
+                        **source_metadata,
+                        "synced": "false",
+                        "last_synced": datetime.now(timezone.utc).isoformat(),
+                        "user_id": current_user.id,
+                    }
+                    copy_source = {"Bucket": BUCKET_NAME, "Key": user_object_key}
+                    minio_s3_client.copy_object(
+                        Bucket=BUCKET_NAME,
+                        Key=user_object_key,
+                        CopySource=copy_source,
+                        Metadata=minio_metadata,
+                        MetadataDirective="REPLACE",
+                    )
+                    logger.info(
+                        f"Updated metadata for '{user_object_key}' to reflect AWS deletion"
+                    )
+                except ClientError as ce:
+                    error_code = ce.response.get("Error", {}).get("Code", "Unknown")
+                    logger.error(
+                        f"Failed to update metadata for '{user_object_key}': {ce}"
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"Failed to update metadata after AWS deletion: {error_code}",
+                    )
 
-        link = (
-            db.query(SharedLink)
-            .filter(SharedLink.object_key == user_object_key)
-            .first()
-        )
-
-        if link:
-            db.delete(link)
-            db.commit()
+        db.query(SharedLink).filter(
+            SharedLink.object_key == user_object_key,
+            SharedLink.bucket == BUCKET_NAME,
+            SharedLink.user_id == current_user.id,
+        ).delete()
 
         return {
             "message": "File deleted successfully",

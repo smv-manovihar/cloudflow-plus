@@ -27,7 +27,7 @@ export default function PreviewDialog({
           <DialogTitle className="text-sm sm:text-base leading-tight">
             Preview
           </DialogTitle>
-          <DialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+          <DialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed truncate inline-block max-w-[300px]">
             {fileData.name}
           </DialogDescription>
         </DialogHeader>

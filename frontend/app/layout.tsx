@@ -12,6 +12,8 @@ import {
 } from "next/font/google";
 import { AuthProvider } from "@/contexts/auth.context";
 import { BreadcrumbsProvider } from "@/contexts/breadcrumbs.context";
+import { Suspense } from "react";
+import { Loading } from "@/components/loading";
 
 // Initialize fonts
 const _plusJakartaSans = V0_Font_Plus_Jakarta_Sans({
@@ -45,11 +47,13 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <Toaster position="top-right" />
-          <AuthProvider>
-            <BreadcrumbsProvider>
-              <AppLayout>{children}</AppLayout>
-            </BreadcrumbsProvider>
-          </AuthProvider>
+          <Suspense fallback={<Loading />}>
+            <AuthProvider>
+              <BreadcrumbsProvider>
+                <AppLayout>{children}</AppLayout>
+              </BreadcrumbsProvider>
+            </AuthProvider>
+          </Suspense>
         </ThemeProvider>
       </body>
     </html>

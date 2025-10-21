@@ -265,7 +265,9 @@ export function UploadDropzone({
                   key={index}
                   className="flex items-center justify-between rounded-md border p-2"
                 >
-                  <span className="text-sm truncate flex-1">{file.name}</span>
+                  <span className="text-sm truncate flex-1 max-w-[200px]">
+                    {file.name}
+                  </span>
                   <Button
                     type="button"
                     variant="ghost"

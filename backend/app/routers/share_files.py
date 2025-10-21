@@ -16,6 +16,7 @@ from urllib.parse import unquote
 from app.core.config import FRONTEND_URL, BUCKET_NAME
 from app.services.s3_service import aws_s3_client
 from app.hashing import Hash
+from app.utils import to_utc_iso, validate_uuid
 from app.database import get_db
 from app.oauth2 import get_current_user
 from app.models import SharedLink, User
@@ -24,50 +25,6 @@ from app.models import SharedLink, User
 # ============================================================================
 # Helper Functions
 # ============================================================================
-
-
-def to_utc_iso(dt: datetime) -> Optional[str]:
-    """
-    Convert datetime to UTC ISO 8601 format with 'Z' suffix.
-
-    Args:
-        dt: datetime object (can be timezone-aware or naive)
-
-    Returns:
-        ISO 8601 string with 'Z' suffix (e.g., '2025-10-20T18:39:00Z')
-        or None if dt is None
-    """
-    if dt is None:
-        return None
-
-    # If datetime is naive, assume it's UTC
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-
-    # Convert to UTC if it's in a different timezone
-    dt_utc = dt.astimezone(timezone.utc)
-
-    # Format as ISO string and replace +00:00 with Z
-    return dt_utc.isoformat().replace("+00:00", "Z")
-
-
-def validate_uuid(user_id: str) -> None:
-    """
-    Validate that the provided user_id is a valid UUID.
-
-    Args:
-        user_id: The user ID to validate.
-
-    Raises:
-        HTTPException: If the user_id is not a valid UUID.
-    """
-    try:
-        uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid user ID format: must be a valid UUID",
-        )
 
 
 def generate_presigned_url(bucket: str, key: str, expires_seconds: int = 60) -> str:
@@ -410,10 +367,9 @@ def update_shared_link(
         link.enabled = payload.enabled
         has_changes = True
 
-    # ✅ FIXED: Explicitly mark as modified when setting to None
     if payload.remove_expiry:
         link.expires_at = None
-        flag_modified(link, "expires_at")  # Mark attribute as modified
+        flag_modified(link, "expires_at")
         has_changes = True
     elif payload.expires_at is not None:
         expires_at = payload.expires_at
@@ -428,10 +384,9 @@ def update_shared_link(
         link.expires_at = expires_at
         has_changes = True
 
-    # ✅ FIXED: Also mark password as modified when removing
     if payload.remove_password:
         link.password = None
-        flag_modified(link, "password")  # Mark attribute as modified
+        flag_modified(link, "password")
         has_changes = True
     elif payload.password is not None:
         password_value = payload.password.strip()
@@ -447,7 +402,6 @@ def update_shared_link(
         link.password = Hash.encrypt(password_value)
         has_changes = True
 
-    # SQLAlchemy's onupdate parameter handles updated_at automatically
     if has_changes:
         db.add(link)
         db.commit()

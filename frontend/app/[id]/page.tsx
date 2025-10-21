@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   Download,
   Share2,
@@ -15,6 +16,8 @@ import {
   Cloud,
   CloudCheck,
   CloudCog,
+  FileQuestion,
+  Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -143,7 +146,7 @@ function ActionButtons({
       <Button
         onClick={onPreview}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2[animation-delay:100ms] bg-transparent hover:scale-105 transition-all duration-300"
+        className="gap-2 animate-in fade-in slide-in-from-left-2 [animation-delay:100ms] bg-transparent hover:scale-105 transition-all duration-300"
         size="sm"
       >
         <Eye className="h-4 w-4" />
@@ -152,7 +155,7 @@ function ActionButtons({
       <Button
         onClick={onShare}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2[animation-delay:150ms] bg-transparent hover:scale-105 transition-all duration-300"
+        className="gap-2 animate-in fade-in slide-in-from-left-2 [animation-delay:150ms] bg-transparent hover:scale-105 transition-all duration-300"
         size="sm"
       >
         <Share2 className="h-4 w-4" />
@@ -292,7 +295,9 @@ export default function FileDetailsPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [deleteType, setDeleteType] = useState<"local" | "aws">("local");
+  const [deleteType, setDeleteType] = useState<"local" | "aws" | "both">(
+    "local"
+  );
   const [expires, setExpires] = useState<string>("");
   const [password, setPassword] = useState<string>("");
 
@@ -499,22 +504,52 @@ export default function FileDetailsPage() {
   const handleDelete = async () => {
     if (!fileData) return;
     setIsDeleting(true);
-    const sync = deleteType === "aws";
     const toastId = toast.loading(`Deleting ${fileData.name}...`);
-    const response = await deleteFile(objectKey, sync);
-    if ("success" in response && response.success) {
-      toast.success(
-        `File deleted successfully${sync ? " (including from AWS)" : ""}`,
-        { id: toastId }
-      );
-      setIsDeleting(false);
-      setShowDeleteDialog(false);
-      handleBack();
-    } else {
-      const apiError = response as DeleteFileErrorResponse;
-      toast.error(apiError.error || "Delete failed", { id: toastId });
-      setIsDeleting(false);
+    let success = false;
+    let errorMsg = "Delete failed";
+
+    try {
+      const response = await deleteFile(objectKey, deleteType);
+      if ("success" in response && response.success) {
+        success = true;
+        if (deleteType === "aws") {
+          // For AWS only, update state to reflect deletion without removing local file
+          setFileData((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              syncStatus: "false",
+              lastSynced: null,
+              syncedBucket: null,
+            };
+          });
+        } else {
+          // For local or both, file is removed locally, so navigate back
+          handleBack();
+        }
+      } else {
+        const apiError = response as DeleteFileErrorResponse;
+        errorMsg = apiError.error || errorMsg;
+      }
+    } catch (err) {
+      errorMsg = "An unexpected error occurred during deletion.";
     }
+
+    if (success) {
+      let successMsg = "File deleted successfully";
+      if (deleteType === "local") {
+        successMsg = "Deleted from local bucket.";
+      } else if (deleteType === "aws") {
+        successMsg = "Deleted from AWS bucket.";
+      } else if (deleteType === "both") {
+        successMsg = "Deleted from both buckets.";
+      }
+      toast.success(successMsg, { id: toastId });
+      setShowDeleteDialog(false);
+    } else {
+      toast.error(errorMsg, { id: toastId });
+    }
+    setIsDeleting(false);
   };
 
   if (isLoading) {
@@ -530,15 +565,53 @@ export default function FileDetailsPage() {
 
   if (error || !fileData) {
     return (
-      <div className="flex-1 flex items-center justify-center h-full">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold text-foreground mb-2">Error</h2>
-          <p className="text-muted-foreground mb-4">
-            {error || "File not found"}
-          </p>
-          <Button onClick={handleBack} variant="outline">
-            Go Back
-          </Button>
+      <div className="flex-1 flex items-center justify-center h-full bg-gradient-to-br from-background to-muted p-4">
+        <div className="w-full max-w-md text-center space-y-8 animate-fade-in">
+          {/* Icon */}
+          <div className="flex justify-center">
+            <div className="relative">
+              <div className="absolute inset-0 bg-primary/20 rounded-full blur-2xl animate-pulse" />
+              <div className="relative bg-primary/10 p-6 rounded-full">
+                <FileQuestion className="h-16 w-16 text-primary" />
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="space-y-3">
+            <h1 className="text-4xl font-bold text-foreground">404</h1>
+            <p className="text-xl font-semibold text-foreground">
+              Page Not Found
+            </p>
+            <p className="text-muted-foreground">
+              The page you're looking for doesn't exist or has been moved. Let's
+              get you back on track.
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-col gap-3 pt-4">
+            <Link href="/" className="w-full">
+              <Button className="w-full gap-2 bg-primary hover:bg-primary/90">
+                <Home className="h-4 w-4" />
+                Back to Home
+              </Button>
+            </Link>
+            <Button
+              variant="outline"
+              className="w-full gap-2 bg-transparent"
+              onClick={handleBack}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Go Back
+            </Button>
+          </div>
+
+          {/* Decorative elements */}
+          <div className="pt-8 space-y-2 text-sm text-muted-foreground">
+            <p>Error Code: 404</p>
+            <p>Resource Not Found</p>
+          </div>
         </div>
       </div>
     );

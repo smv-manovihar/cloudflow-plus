@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Copy,
   Eye,
+  ClockFading,
   EyeOff,
   Trash2,
   SettingsIcon,
@@ -150,17 +151,35 @@ export function SharedLinks() {
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       <div className="border-b border-border bg-card p-4 md:p-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
         <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
-          <Input
-            placeholder="Search shared files..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 transition-all focus:ring-2 focus:ring-primary/50"
-          />
+          {/* This new wrapper div keeps the Input and Refresh Button 
+            in a row (due to 'flex') even on mobile.
+            The 'flex-1' ensures this group takes up the available 
+            space on desktop, just as the input did before.
+          */}
+          <div className="flex flex-1 gap-3">
+            <Input
+              placeholder="Search shared files..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="flex-1 transition-all focus:ring-2 focus:ring-primary/50"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fetchLinks()}
+              className="whitespace-nowrap transition-all hover:scale-105"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span className="hidden md:inline">Refresh</span>
+            </Button>
+          </div>
+          {/* This button will now stack below the search/refresh row on mobile */}
           <Button
             variant={showExpired ? "default" : "outline"}
             onClick={() => setShowExpired(!showExpired)}
             className="whitespace-nowrap transition-all hover:scale-105"
           >
+            <ClockFading className="h-4 w-4" />
             {showExpired ? "Hide Expired" : "Show Expired"}
           </Button>
         </div>
@@ -197,7 +216,7 @@ export function SharedLinks() {
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
-                      <p className="text-sm font-medium text-foreground truncate">
+                      <p className="text-sm font-medium text-foreground truncate hover:underline">
                         {link.name}
                       </p>
                       <span

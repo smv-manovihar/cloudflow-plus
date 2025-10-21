@@ -194,7 +194,7 @@ export const getFileInfo = async (
 // ---------------------------
 export const deleteFile = async (
   objectKey: string,
-  sync = false
+  sync = "local"
 ): Promise<DeleteFileResponse | DeleteFileErrorResponse> => {
   try {
     if (!objectKey) {

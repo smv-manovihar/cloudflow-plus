@@ -296,7 +296,7 @@ export default function SharedLinkViewPage() {
       <div className="flex-1 overflow-auto">
         <div className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
-            <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-left-2 duration-500 min-w-0">
+            <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-bottom-2 duration-500 min-w-0 [animation-delay:50ms]">
               <h2 className="text-sm md:text-base font-semibold text-foreground mb-2">
                 File Information
               </h2>
@@ -343,7 +343,7 @@ export default function SharedLinkViewPage() {
                 </div>
               </div>
             </Card>
-            <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-bottom-2 duration-500 min-w-0">
+            <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-bottom-2 duration-500 min-w-0 [animation-delay:100ms]">
               <h2 className="text-sm md:text-base font-semibold text-foreground mb-2">
                 Access Controls
               </h2>
@@ -454,7 +454,7 @@ export default function SharedLinkViewPage() {
                 </Button>
               </div>
             </Card>
-            <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-right-2 duration-500 min-w-0 lg:col-span-2 2xl:col-span-1">
+            <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-bottom-2 duration-500 min-w-0 lg:col-span-2 2xl:col-span-1 [animation-delay:150ms]">
               <h2 className="text-sm md:text-base font-semibold text-foreground mb-2">
                 Share
               </h2>

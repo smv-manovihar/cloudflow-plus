@@ -37,11 +37,25 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { formatFileSize } from "@/utils/helpers";
 import DeleteDialog from "./browser-delete-file-dialog";
 import { useBreadcrumbs } from "@/contexts/breadcrumbs.context";
 
-// Main FileBrowser Component
 export default function FileBrowser() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -64,12 +78,16 @@ export default function FileBrowser() {
   const [pendingFolderName, setPendingFolderName] = useState<string>("");
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
-  const [deleteType, setDeleteType] = useState<"local" | "aws">("local");
+  const [deleteType, setDeleteType] = useState<"local" | "aws" | "both">(
+    "local"
+  );
   const [isDeleting, setIsDeleting] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [shareFile, setShareFile] = useState<FileItem | null>(null);
   const [shareExpires, setShareExpires] = useState("");
   const [sharePassword, setSharePassword] = useState("");
+  const [showSyncConfirmDialog, setShowSyncConfirmDialog] = useState(false);
+
   const relativeName = useCallback(
     (key: string) => {
       const base = prefix || "";
@@ -149,7 +167,6 @@ export default function FileBrowser() {
     [prefix, q, transformFiles]
   );
 
-  // update the initialize effect to also watch `q` and to sync the search box
   useEffect(() => {
     let mounted = true;
     const initialize = async () => {
@@ -170,13 +187,11 @@ export default function FileBrowser() {
     };
   }, [prefix, q, loadFiles]);
 
-  // Add this useEffect to handle breadcrumb updates when prefix changes
   useEffect(() => {
     const updateBreadcrumbs = () => {
       const breadcrumbs = [{ label: "Home", href: "/" }];
 
       if (prefix) {
-        // Split the prefix into parts and create breadcrumbs
         const parts = prefix.split("/").filter(Boolean);
         let currentPath = "";
 
@@ -189,7 +204,6 @@ export default function FileBrowser() {
         });
       }
 
-      // Use setBreadcrumbs instead of manually managing with add/pop
       setBreadcrumbs(breadcrumbs);
     };
 
@@ -220,7 +234,7 @@ export default function FileBrowser() {
     const toastId = toast.loading(`Syncing ${fileName}...`);
 
     const file = currentPageData.find((f) => f.key === fileKey);
-    const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB in bytes
+    const SIZE_THRESHOLD = 20 * 1024 * 1024;
     const isLargeFile = file ? file.sizeBytes > SIZE_THRESHOLD : false;
 
     const res = isLargeFile
@@ -344,11 +358,10 @@ export default function FileBrowser() {
       router.push(`/shared/${file.sharedLinkId}/view`);
       return;
     }
-    // Always check for existing shared link via API
+
     const linkResult = await getSharedLinkId(file.key);
 
     if (linkResult.success && linkResult.linkId) {
-      // Update the file state with the shared link ID
       setCurrentPageData((prev) =>
         prev.map((f) =>
           f.key === file.key
@@ -357,12 +370,10 @@ export default function FileBrowser() {
         )
       );
 
-      // Navigate to the shared view
       router.push(`/shared/${linkResult.linkId}/view`);
       return;
     }
 
-    // If no existing link or API failed, open the share dialog to create a new link
     setShareFile(file);
     setShareExpires("");
     setSharePassword("");
@@ -384,7 +395,6 @@ export default function FileBrowser() {
     const result = await createSharedLink(payload);
 
     if (result.success) {
-      // Copy the share link to clipboard
       const shareUrl = `${window.location.origin}/shared/${result.result.id}/download`;
       await navigator.clipboard.writeText(shareUrl);
 
@@ -393,7 +403,6 @@ export default function FileBrowser() {
         duration: 3000,
       });
 
-      // Update the file's shared status
       setCurrentPageData((prev) =>
         prev.map((f) =>
           f.key === shareFile.key
@@ -417,39 +426,60 @@ export default function FileBrowser() {
 
     setIsDeleting(true);
     const toastId = toast.loading(`Deleting ${selectedFile.name}...`);
+    let success = false;
+    let errorMsg = "Delete failed";
+
     try {
-      const sync = deleteType === "aws";
-      const result = await deleteFile(selectedFile.key, sync);
+      const result = await deleteFile(selectedFile.key, deleteType);
       if (result.success) {
-        setCurrentPageData((prev) =>
-          prev.filter((f) => f.key !== selectedFile.key)
-        );
-        toast.success(
-          `${selectedFile.name} deleted${sync ? " (including from AWS)" : ""}`,
-          {
-            id: toastId,
-            duration: 2000,
-          }
-        );
-        setShowDeleteDialog(false);
-        setSelectedFile(null);
-      } else {
-        toast.error(result.error || `Failed to delete ${selectedFile.name}`, {
-          id: toastId,
-          duration: 3000,
-        });
-      }
-    } catch (error) {
-      toast.error(
-        `An unexpected error occurred while deleting ${selectedFile.name}`,
-        {
-          id: toastId,
-          duration: 3000,
+        success = true;
+        if (deleteType === "local" || deleteType === "both") {
+          setCurrentPageData((prev) =>
+            prev.filter((f) => f.key !== selectedFile.key)
+          );
+        } else if (deleteType === "aws") {
+          setCurrentPageData((prev) =>
+            prev.map((f) =>
+              f.key === selectedFile.key
+                ? {
+                    ...f,
+                    syncStatus: "false",
+                    lastSynced: null,
+                    syncedBucket: null,
+                  }
+                : f
+            )
+          );
         }
-      );
-    } finally {
-      setIsDeleting(false);
+      } else {
+        errorMsg = result.error || errorMsg;
+      }
+    } catch (err) {
+      errorMsg = "An unexpected error occurred during deletion.";
     }
+
+    if (success) {
+      let successMsg = "File deleted successfully";
+      if (deleteType === "local") {
+        successMsg = "Deleted from local bucket.";
+      } else if (deleteType === "aws") {
+        successMsg = "Deleted from AWS bucket.";
+      } else if (deleteType === "both") {
+        successMsg = "Deleted from both buckets.";
+      }
+      toast.success(successMsg, {
+        id: toastId,
+        duration: 2000,
+      });
+      setShowDeleteDialog(false);
+      setSelectedFile(null);
+    } else {
+      toast.error(errorMsg, {
+        id: toastId,
+        duration: 3000,
+      });
+    }
+    setIsDeleting(false);
   };
 
   const handleFolderClick = (folderName: string) => {
@@ -599,70 +629,105 @@ export default function FileBrowser() {
               }}
               className="flex-1 transition-all focus:ring-2 focus:ring-primary/50"
             />
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => {
-                if (searchQuery.trim()) {
-                  handleSearch();
-                }
-              }}
-              title="Search"
-              className="transition-all hover:scale-105 bg-transparent"
-            >
-              <Search className="h-4 w-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    if (searchQuery.trim()) {
+                      handleSearch();
+                    }
+                  }}
+                  className="transition-all hover:scale-105 bg-transparent"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Search</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleSync}
-              disabled={isSyncing}
-              title="Sync all files"
-              className="transition-all hover:scale-105 bg-transparent"
-            >
-              <CloudSun
-                className={cn(
-                  "h-4 w-4",
-                  isSyncing && "animate-spin text-primary"
-                )}
-              />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setShowCreateFolderDialog(true)}
-              title="Create new folder"
-              className="transition-all hover:scale-105 bg-transparent"
-            >
-              <FolderPlus className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleRefresh}
-              disabled={isLoading}
-              title="Refresh file list"
-              className="transition-all hover:scale-105 bg-transparent"
-            >
-              <RefreshCw
-                className={cn("h-4 w-4", isLoading && "animate-spin")}
-              />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
-              title="Toggle view"
-              className="transition-all hover:scale-105"
-            >
-              {viewMode === "grid" ? (
-                <List className="h-4 w-4" />
-              ) : (
-                <Grid3x3 className="h-4 w-4" />
-              )}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowSyncConfirmDialog(true)}
+                  disabled={isSyncing}
+                  className="transition-all hover:scale-105 bg-transparent"
+                >
+                  <CloudSun
+                    className={cn(
+                      "h-4 w-4",
+                      isSyncing && "animate-spin text-primary"
+                    )}
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Sync all files</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowCreateFolderDialog(true)}
+                  className="transition-all hover:scale-105 bg-transparent"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Create new folder</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleRefresh}
+                  disabled={isLoading}
+                  className="transition-all hover:scale-105 bg-transparent"
+                >
+                  <RefreshCw
+                    className={cn("h-4 w-4", isLoading && "animate-spin")}
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Refresh file list</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() =>
+                    setViewMode(viewMode === "grid" ? "list" : "grid")
+                  }
+                  className="transition-all hover:scale-105"
+                >
+                  {viewMode === "grid" ? (
+                    <List className="h-4 w-4" />
+                  ) : (
+                    <Grid3x3 className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Toggle view</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -719,6 +784,34 @@ export default function FileBrowser() {
           </>
         )}
       </div>
+
+      {/* Sync Confirmation Dialog */}
+      <AlertDialog
+        open={showSyncConfirmDialog}
+        onOpenChange={setShowSyncConfirmDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sync All Files?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will sync all files in the current directory with AWS. This
+              operation may take some time depending on the number of files. Are
+              you sure you want to continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowSyncConfirmDialog(false);
+                handleSync();
+              }}
+            >
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <DeleteDialog
         open={showDeleteDialog}

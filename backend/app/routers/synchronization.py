@@ -18,12 +18,14 @@ from app.schemas import User
 from app.oauth2 import get_current_user
 import uuid
 from urllib.parse import unquote
-from datetime import datetime, timezone
 from botocore.exceptions import ClientError
+
 
 logger = logging.getLogger(__name__)
 
+
 router = APIRouter(prefix="/sync", tags=["Sync"])
+
 
 # ------------------- PYDANTIC MODELS -------------------
 
@@ -93,50 +95,6 @@ def strip_user_prefix(full_key: str, user_prefix: str) -> str:
     if full_key.startswith(user_prefix):
         return full_key[len(user_prefix) :]
     return full_key
-
-
-def set_pending_metadata(local_bucket: str, key: str, user_id: str) -> None:
-    """
-    Set the object's metadata to indicate sync is pending.
-
-    Args:
-        local_bucket: The source bucket name.
-        key: The full S3 key (including user prefix).
-        user_id: The user ID for metadata.
-
-    Raises:
-        HTTPException: If metadata update fails.
-    """
-    from app.services.s3_service import minio_s3_client
-
-    try:
-        # Get current metadata
-        source_meta = minio_s3_client.head_object(Bucket=local_bucket, Key=key)
-        source_metadata = source_meta.get("Metadata", {})
-
-        # Update metadata with pending state
-        pending_metadata = {
-            **source_metadata,
-            "synced": "pending",
-            "last_synced": datetime.now(timezone.utc).isoformat(),
-            "user_id": user_id,
-        }
-        copy_source = {"Bucket": local_bucket, "Key": key}
-        minio_s3_client.copy_object(
-            Bucket=local_bucket,
-            Key=key,
-            CopySource=copy_source,
-            Metadata=pending_metadata,
-            MetadataDirective="REPLACE",
-        )
-        logger.info(f"Set pending metadata for '{key}' in bucket '{local_bucket}'")
-    except ClientError as ce:
-        error_code = ce.response.get("Error", {}).get("Code", "Unknown")
-        logger.error(f"Failed to set pending metadata for '{key}': {ce}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to set pending metadata: {error_code}",
-        )
 
 
 # ------------------- ENDPOINTS -------------------
@@ -273,9 +231,6 @@ def sync_file(payload: SyncFileRequest, current_user: User = Depends(get_current
             detail=f"Failed to access file: {e}",
         )
 
-    # Set pending metadata before sync
-    set_pending_metadata(BUCKET_NAME, user_object_key, current_user.id)
-
     try:
         result = sync_file_service(
             BUCKET_NAME, payload.destination_bucket, user_object_key, current_user.id
@@ -388,9 +343,6 @@ async def sync_file_async(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to access file: {e}",
         )
-
-    # Set pending metadata before queuing the task
-    set_pending_metadata(BUCKET_NAME, user_object_key, current_user.id)
 
     # Queue the sync task
     background_tasks.add_task(

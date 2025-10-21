@@ -7,6 +7,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { FileItem } from "@/types/files.types";
 import {
@@ -153,89 +158,118 @@ export default function FileList({
               <div className="hidden md:flex gap-1 ml-2">
                 {!file.isFolder && (
                   <>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDownload(file.name, file.key);
-                      }}
-                      title="Download"
-                      className="h-8 w-8 hover:scale-110 transition-transform"
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onShare(file.name, file.key);
-                      }}
-                      title="Share"
-                      className="h-8 w-8 hover:scale-110 transition-transform"
-                    >
-                      <Share2 className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSyncFile(file.name, file.key);
-                      }}
-                      disabled={
-                        syncingFiles.has(file.name) ||
-                        file.syncStatus !== "false"
-                      }
-                      title={
-                        file.syncStatus === "true"
-                          ? "Already synced"
-                          : file.syncStatus === "pending"
-                          ? "Pending"
-                          : "Sync this file"
-                      }
-                      className="h-8 w-8 hover:scale-110 transition-transform"
-                    >
-                      {file.syncStatus === "true" ? (
-                        <CloudCheck
-                          className={cn(
-                            "h-4 w-4",
-                            file.syncStatus === "true" &&
-                              "text-green-600 dark:text-green-400"
-                          )}
-                        />
-                      ) : file.syncStatus === "pending" ? (
-                        <CloudCog
-                          className={cn(
-                            "h-4 w-4",
-                            "text-orange-600 dark:text-orange-400"
-                          )}
-                        />
-                      ) : (
-                        <Cloud
-                          className={cn(
-                            "h-4 w-4",
-                            syncingFiles.has(file.name) &&
-                              "animate-spin text-primary"
-                          )}
-                        />
-                      )}
-                    </Button>
+                    <Tooltip delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDownload(file.name, file.key);
+                          }}
+                          className="h-8 w-8 hover:scale-110 transition-transform"
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Download</p>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onShare(file.name, file.key);
+                          }}
+                          className="h-8 w-8 hover:scale-110 transition-transform"
+                        >
+                          <Share2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Share</p>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <span tabIndex={0}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSyncFile(file.name, file.key);
+                            }}
+                            disabled={
+                              syncingFiles.has(file.name) ||
+                              file.syncStatus !== "false"
+                            }
+                            className="h-8 w-8 hover:scale-110 transition-transform"
+                          >
+                            {file.syncStatus === "true" ? (
+                              <CloudCheck
+                                className={cn(
+                                  "h-4 w-4",
+                                  file.syncStatus === "true" &&
+                                    "text-green-600 dark:text-green-400"
+                                )}
+                              />
+                            ) : file.syncStatus === "pending" ? (
+                              <CloudCog
+                                className={cn(
+                                  "h-4 w-4",
+                                  "text-orange-600 dark:text-orange-400"
+                                )}
+                              />
+                            ) : (
+                              <Cloud
+                                className={cn(
+                                  "h-4 w-4",
+                                  syncingFiles.has(file.name) &&
+                                    "animate-spin text-primary"
+                                )}
+                              />
+                            )}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>
+                          {file.syncStatus === "true"
+                            ? "Already synced"
+                            : file.syncStatus === "pending"
+                            ? "Pending"
+                            : "Sync this file"}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
                   </>
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(file.name, file.key);
-                  }}
-                  title="Delete"
-                  className="h-8 w-8 text-destructive hover:text-destructive hover:scale-110 transition-transform"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(file.name, file.key);
+                      }}
+                      className="h-8 w-8 text-destructive hover:text-destructive hover:scale-110 transition-transform"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Delete</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
 
               <div className="md:hidden">
@@ -355,74 +389,103 @@ export default function FileList({
                   </div>
                   {!file.isFolder && (
                     <div className="flex gap-1 transition-opacity mt-3 -mx-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDownload(file.name, file.key);
-                        }}
-                        title="Download"
-                        className="h-8 w-8 hover:scale-110 transition-transform"
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onShare(file.name, file.key);
-                        }}
-                        title="Share"
-                        className="h-8 w-8 hover:scale-110 transition-transform"
-                      >
-                        <Share2 className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSyncFile(file.name, file.key);
-                        }}
-                        disabled={
-                          syncingFiles.has(file.name) ||
-                          file.syncStatus === "true"
-                        }
-                        title={
-                          file.syncStatus === "true"
-                            ? "Already synced"
-                            : "Sync this file"
-                        }
-                        className="h-8 w-8 hover:scale-110 transition-transform"
-                      >
-                        {!file.isFolder && file.syncStatus === "true" ? (
-                          <CloudCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
-                        ) : (
-                          <Cloud
-                            className={cn(
-                              "h-4 w-4",
-                              syncingFiles.has(file.name) &&
-                                "animate-spin text-primary",
-                              file.syncStatus === "true" &&
-                                "text-green-600 dark:text-green-400"
-                            )}
-                          />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(file.name, file.key);
-                        }}
-                        title="Delete"
-                        className="h-8 w-8 text-destructive hover:text-destructive hover:scale-110 transition-transform"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <Tooltip delayDuration={300}>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDownload(file.name, file.key);
+                            }}
+                            className="h-8 w-8 hover:scale-110 transition-transform"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Download</p>
+                        </TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip delayDuration={300}>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onShare(file.name, file.key);
+                            }}
+                            className="h-8 w-8 hover:scale-110 transition-transform"
+                          >
+                            <Share2 className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Share</p>
+                        </TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip delayDuration={300}>
+                        <TooltipTrigger asChild>
+                          <span tabIndex={0}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSyncFile(file.name, file.key);
+                              }}
+                              disabled={
+                                syncingFiles.has(file.name) ||
+                                file.syncStatus === "true"
+                              }
+                              className="h-8 w-8 hover:scale-110 transition-transform"
+                            >
+                              {!file.isFolder && file.syncStatus === "true" ? (
+                                <CloudCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
+                              ) : (
+                                <Cloud
+                                  className={cn(
+                                    "h-4 w-4",
+                                    syncingFiles.has(file.name) &&
+                                      "animate-spin text-primary",
+                                    file.syncStatus === "true" &&
+                                      "text-green-600 dark:text-green-400"
+                                  )}
+                                />
+                              )}
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            {file.syncStatus === "true"
+                              ? "Already synced"
+                              : "Sync this file"}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip delayDuration={300}>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDelete(file.name, file.key);
+                            }}
+                            className="h-8 w-8 text-destructive hover:text-destructive hover:scale-110 transition-transform"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Delete</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   )}
                 </div>

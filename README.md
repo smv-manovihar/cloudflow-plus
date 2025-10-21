@@ -7,19 +7,22 @@ CloudFlow+ is a modern file sharing web application that provides a seamless exp
 ## ✨ Core Features
 
 - **Hybrid Cloud Storage:** Upload and manage files on a local MinIO server for development and staging, or on AWS S3 for production.
+- **Folder Management:** Organize your files efficiently by creating and managing folders.
 - **Smart Sync:** Periodically or manually synchronize file objects from your local MinIO instance to your AWS S3 bucket, ensuring your data is backed up and consistent.
 - **Secure Sharing Links:** Generate shareable links for your files with advanced security controls:
   - **Link Expiration:** Set an expiration date and time for links to automatically become invalid.
   - **Password Protection:** Secure your shared files with a password.
   - **QR Code Sharing:** Instantly generate a QR code for easy sharing to mobile devices.
-- **Modern UI:** A clean, responsive, and user-friendly interface built with React.
+  - **Enable/Disable Links:** Toggle the active status of a share link at any time.
+- **Shared Link Management:** Easily view, manage, and revoke access to all your shared files from a centralized dashboard.
+- **Modern UI:** A clean, responsive, and user-friendly interface built with Next.js.
 - **High-Performance Backend:** A fast and reliable backend powered by FastAPI.
 
 ## 🛠️ Tech Stack
 
 | Component         | Technology                    |
 | :---------------- | :---------------------------- |
-| **Frontend**      | React, Tailwind CSS, Axios    |
+| **Frontend**      | Next.js, Tailwind CSS, Axios  |
 | **Backend**       | FastAPI, Pydantic, SQLAlchemy |
 | **Cloud Storage** | AWS S3                        |
 | **Local Storage** | MinIO (S3-Compatible)         |
@@ -48,7 +51,7 @@ cd cloudflow-plus
 
 ### 2\. Configure the Backend
 
-Navigate to the backend directory and set up your Python virtual environment and dependencies using `uv`.
+Navigate to the `backend` directory and set up your Python virtual environment and dependencies using `uv`.
 
 ```bash
 cd backend
@@ -61,6 +64,12 @@ After setup, create a `.env` file from the example and fill in your configuratio
 **Your `.env` file should look like this:**
 
 ```env
+# Frontend URL for CORS
+FRONTEND_URL="http://localhost:3000"
+
+# S3 Bucket Name
+BUCKET_NAME="your-s3-bucket-name"
+
 # AWS S3 Credentials
 AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
 AWS_SECRET_ACCESS_KEY="YOUR_AWS_SECRET_ACCESS_KEY"
@@ -70,15 +79,28 @@ AWS_REGION="your-aws-region"
 MINIO_ENDPOINT="localhost:9000"
 MINIO_ACCESS_KEY="minioadmin"
 MINIO_SECRET_KEY="minioadmin"
+
+# JWT Secret Keys (generate strong random strings)
+SECRET_KEY="your-strong-secret-key"
+REFRESH_SECRET_KEY="your-strong-refresh-secret-key"
 ```
 
 ### 3\. Configure the Frontend
 
-In a new terminal, navigate to the frontend directory and install the required packages.
+In a new terminal, navigate to the `frontend` directory and install the required packages.
 
 ```bash
 cd frontend
 npm install
+```
+
+Create a `.env` file in the `frontend` directory:
+
+**Your `.env` file should look like this:**
+
+```env
+NEXT_PUBLIC_API_URL="http://localhost:8000"
+NEXT_PUBLIC_FRONTEND_URL="http://localhost:3000"
 ```
 
 ### 4\. Run the Application
@@ -113,19 +135,19 @@ The API will be available at `http://localhost:8000`.
 
 📄 Check out the API routes documentation at `http://localhost:8000/docs`.
 
-**Terminal 3: Start the Frontend Development Server (React)**
+**Terminal 3: Start the Frontend Development Server (Next.js)**
 
 ```bash
 # In the /frontend directory
 npm run dev
 ```
 
-The React app will open automatically in your browser at `http://localhost:5173`. You should now have a fully functional local instance of CloudFlow+\!
+The Next.js app will be available at `http://localhost:3000`. You should now have a fully functional local instance of CloudFlow+\!
 
 ## 💡 Usage
 
 1.  **Upload Files:** Drag and drop files onto the main dashboard or use the upload button. Files will be uploaded to your configured MinIO server.
-2.  **Smart Sync:** Navigate to the 'Sync' page. You can trigger a manual sync to push all new objects from MinIO to your AWS S3 bucket or configure a periodic sync job.
+2.  **Smart Sync:** Click the 'Sync' icon next to an individual file to sync it with AWS S3. To sync all new files from your local MinIO server at once, use the 'Full Sync' button.
 3.  **Share a File:**
     - Click the 'Share' icon next to any file.
     - In the modal, set an optional password and an expiration date.

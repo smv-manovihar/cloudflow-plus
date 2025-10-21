@@ -13,11 +13,12 @@ interface DeleteDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   fileData: FileDetails;
-  deleteType: "local" | "aws";
+  deleteType: "local" | "aws" | "both";
   isDeleting: boolean;
-  onDeleteTypeChange: (type: "local" | "aws") => void;
+  onDeleteTypeChange: (type: "local" | "aws" | "both") => void;
   onDelete: () => void;
 }
+
 export default function DeleteDialog({
   open,
   onOpenChange,
@@ -27,55 +28,74 @@ export default function DeleteDialog({
   onDeleteTypeChange,
   onDelete,
 }: DeleteDialogProps) {
+  const isSynced = fileData.syncStatus === "true";
+  const canDeleteAws = isSynced;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-full max-w-sm sm:max-w-md animate-in fade-in zoom-in-95 duration-300">
         <DialogHeader>
-          <DialogTitle>Delete File</DialogTitle>
-          <DialogDescription>
-            Are you sure you want to delete{" "}
-            <span className="font-semibold text-foreground">
+          <DialogTitle>
+            Delete{" "}
+            <span className="truncate inline-block max-w-[180px]">
               {fileData.name}
             </span>
-            ? This action cannot be undone.
-          </DialogDescription>
+            ?
+          </DialogTitle>
+          <DialogDescription>This action cannot be undone.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 mb-4">
-          <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2">
+          <div className="flex flex-col space-y-2">
             <Button
               type="button"
               variant={deleteType === "local" ? "default" : "outline"}
               size="sm"
               onClick={() => onDeleteTypeChange("local")}
-              className="flex-1"
+              className="w-full"
             >
-              Delete Local Only
+              Local Only
             </Button>
             <Button
               type="button"
               variant={deleteType === "aws" ? "default" : "outline"}
               size="sm"
               onClick={() => onDeleteTypeChange("aws")}
-              className="flex-1"
-              disabled={fileData.syncStatus !== "true"}
+              className="w-full"
+              disabled={!canDeleteAws}
             >
-              Delete from AWS Too
-              {fileData.syncStatus === "true" ? "" : " (Not Synced)"}
+              AWS Only{!isSynced && " (Not Synced)"}
+            </Button>
+            <Button
+              type="button"
+              variant={deleteType === "both" ? "default" : "outline"}
+              size="sm"
+              onClick={() => onDeleteTypeChange("both")}
+              className="w-full"
+              disabled={!canDeleteAws}
+            >
+              Both{!isSynced && " (Not Synced)"}
             </Button>
           </div>
           <p
             className={cn(
               "text-xs text-muted-foreground",
-              deleteType === "aws" && "text-destructive"
+              (deleteType === "aws" || deleteType === "both") &&
+                "text-destructive"
             )}
           >
             {deleteType === "local"
-              ? "This will only remove the file from the local bucket."
-              : "This will remove the file from both local and AWS buckets."}
+              ? "Removes from local."
+              : deleteType === "aws"
+              ? "Removes from AWS."
+              : "Removes from both AWS and Local."}
           </p>
         </div>
         <div className="flex gap-3 justify-end">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isDeleting}
+          >
             Cancel
           </Button>
           <Button
@@ -86,7 +106,11 @@ export default function DeleteDialog({
           >
             {isDeleting
               ? "Deleting..."
-              : `Delete ${deleteType === "aws" ? "(AWS Too)" : ""}`}
+              : deleteType === "local"
+              ? "Delete"
+              : deleteType === "aws"
+              ? "Delete (AWS)"
+              : "Delete (Both)"}
           </Button>
         </div>
       </DialogContent>

@@ -76,8 +76,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const isPublicRoute = publicRoutes.includes(pathname);
   const isPublicSharedDownload =
     pathname.startsWith("/shared/") && pathname.endsWith("/download");
+  const isSpecialRoute = ["/maintenance", "/unauthorized"].includes(pathname);
 
-  if (isPublicRoute || isPublicSharedDownload) {
+  if (isPublicRoute || isPublicSharedDownload || isSpecialRoute) {
     return <>{children}</>;
   }
 
