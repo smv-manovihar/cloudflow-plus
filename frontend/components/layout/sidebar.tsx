@@ -7,6 +7,7 @@ import {
   Home,
   Share2,
   Settings,
+  Shield,
   LogOut,
   User2,
   PanelLeftCloseIcon,
@@ -23,7 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/contexts/auth.context";
 
-const navItems = [
+const baseNavItems = [
   { href: "/", label: "Home", icon: Home },
   { href: "/shared", label: "Shared", icon: Share2 },
   { href: "/settings", label: "Settings", icon: Settings },
@@ -66,8 +67,12 @@ export function Sidebar({
     }
   };
 
+  const navItems = user?.role === "admin"
+    ? [...baseNavItems, { href: "/admin", label: "Admin Settings", icon: Shield }]
+    : baseNavItems;
+
   // Helper function to determine if a route is active
-  const getIsActive = (item: (typeof navItems)[0]) => {
+  const getIsActive = (item: (typeof baseNavItems)[0]) => {
     if (item.href === "/") {
       // Home is active if:
       // 1. Exactly at "/" OR

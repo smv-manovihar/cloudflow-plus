@@ -77,7 +77,11 @@ api.interceptors.response.use(
     // Check if the error is 401 and we haven't already tried to refresh
     if (error.response?.status === 401 && !originalRequest._retry) {
       // Skip token refresh for refresh endpoint and public share routes to avoid infinite loops
-      if (originalRequest.url?.includes('/auth/refresh') ||( originalRequest.url?.startsWith('/share/') && originalRequest.url?.endsWith('/download'))) {
+      const requestUrl = originalRequest.url ?? "";
+      if (
+        requestUrl.includes('/auth/refresh') ||
+        (requestUrl.includes('/share/') && (requestUrl.includes('/download') || requestUrl.includes('/public')))
+      ) {
         return Promise.reject(error);
       }
 

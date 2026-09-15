@@ -1,8 +1,15 @@
 export interface S3File {
   key: string;
+  display_key?: string;
   last_modified: string;
   size_bytes: number;
-  synced: "pending" | "true" | "false";
+  content_type?: string;
+  is_folder?: boolean;
+  synced?: "pending" | "true" | "false";
+  sync_status?: string;
+  last_synced?: string | null;
+  is_shared?: boolean;
+  shared_link_id?: string | null;
 }
 
 export interface FileItem {
@@ -40,6 +47,8 @@ export interface Toast {
 
 export interface PaginationInfo {
   count: number;
+  total?: number;
+  offset?: number;
   page_size: number;
   has_more: boolean;
   next_cursor: string | null;
@@ -81,7 +90,7 @@ export interface FileInfoResponse {
   object_key: string;
   content_length: number;
   last_modified: string;
-  aws_bucket: string | null;
+  aws_bucket?: string | null;
   synced: "pending" | "true" | "false";
   last_synced: string | null;
   is_shared: boolean;

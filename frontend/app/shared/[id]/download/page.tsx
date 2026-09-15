@@ -13,8 +13,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { BrandWordmark } from "@/components/layout/brand-wordmark";
 import Link from "next/link";
+import { toast } from "sonner";
 
 import { getSharedFileInfo, getDownloadLink } from "@/api/share.api";
 import { formatFileSize } from "@/utils/helpers";
@@ -43,6 +45,16 @@ export default function PublicDownloadPage({
   const [expiresIn, setExpiresIn] = useState<number | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
+  const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+
+  const triggerBrowserDownload = (url: string, filename: string) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
 
   const fetchFileInfo = async () => {
     try {
@@ -68,7 +80,7 @@ export default function PublicDownloadPage({
     }
   };
 
-  const attemptDownloadLink = async (pass?: string) => {
+  const attemptDownloadLink = async (pass?: string, autoDownload: boolean = true) => {
     setError(null);
 
     const res: GetDownloadLinkResultType = await getDownloadLink(linkId, pass);
@@ -79,6 +91,13 @@ export default function PublicDownloadPage({
       setShowPasswordForm(false);
       setPassword("");
       setError(null);
+
+      if (autoDownload && fileInfo) {
+        setIsDownloading(true);
+        toast.success(`Download started for ${fileInfo.name}`);
+        triggerBrowserDownload(res.result.url, fileInfo.name);
+        setTimeout(() => setIsDownloading(false), 2000);
+      }
     } else {
       const status = res.error?.status ?? 500;
       const errorMsg = res.error?.message ?? "Failed to create download link";
@@ -124,25 +143,26 @@ export default function PublicDownloadPage({
     setIsSubmittingPassword(true);
 
     try {
-      await attemptDownloadLink(password);
+      await attemptDownloadLink(password, true);
     } finally {
       setIsSubmittingPassword(false);
     }
   };
 
   const handleCreateLink = async () => {
-    await attemptDownloadLink();
+    setIsGeneratingLink(true);
+    try {
+      await attemptDownloadLink(undefined, true);
+    } finally {
+      setIsGeneratingLink(false);
+    }
   };
 
   const handleDownload = () => {
     if (!downloadUrl || !fileInfo) return;
     setIsDownloading(true);
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.download = fileInfo.name;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    toast.success(`Starting download for ${fileInfo.name}...`);
+    triggerBrowserDownload(downloadUrl, fileInfo.name);
     setTimeout(() => setIsDownloading(false), 2000);
   };
 
@@ -273,65 +293,12 @@ export default function PublicDownloadPage({
   return (
     <>
       <style>{`
-        @keyframes glowPulse {
-          0%, 100% {
-            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5),
-                        0 0 40px rgba(59, 130, 246, 0.3);
-          }
-          50% {
-            box-shadow: 0 0 30px rgba(59, 130, 246, 0.8),
-                        0 0 60px rgba(59, 130, 246, 0.5);
-          }
-        }
-
-        @keyframes scaleIn {
-          0% {
-            transform: scale(0.8);
-            opacity: 0;
-          }
-          50% {
-            transform: scale(1.05);
-          }
-          100% {
-            transform: scale(1);
-            opacity: 1;
-          }
-        }
-
-        @keyframes attention {
-          0%, 100% {
-            transform: scale(1);
-          }
-          50% {
-            transform: scale(1.05);
-          }
-        }
-
-        @keyframes iconBounce {
-          0%, 100% {
-            transform: translateY(0);
-          }
-          50% {
-            transform: translateY(-5px);
-          }
-        }
-
-        .download-button-animated {
-          animation: scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
-                     attention 1s ease-in-out 0.5s 3,
-                     glowPulse 2s ease-in-out 3.5s infinite;
-        }
-
-        .download-icon-bounce {
+        .animated-link {
+          position: relative;
+          text-decoration: none;
           display: inline-block;
-          animation: iconBounce 1s ease-in-out infinite;
+          transition: all 0.3s ease-out;
         }
-          .animated-link {
-      position: relative;
-      text-decoration: none;
-      display: inline-block;
-      transition: all 0.3s ease-out;
-    }
     
     .animated-link::after {
       content: '';
@@ -409,8 +376,7 @@ export default function PublicDownloadPage({
                   </div>
                 )}
                 <div>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     placeholder="Enter password to unlock"
                     value={password}
                     onChange={(e) => {
@@ -442,12 +408,12 @@ export default function PublicDownloadPage({
                   {isSubmittingPassword ? (
                     <div className="flex items-center gap-2">
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                      Verifying...
+                      Verifying & Downloading...
                     </div>
                   ) : (
                     <>
                       <Lock className="h-4 w-4 mr-2" />
-                      Unlock Download
+                      Unlock & Download
                     </>
                   )}
                 </Button>
@@ -456,10 +422,21 @@ export default function PublicDownloadPage({
               <Button
                 key="generate-btn"
                 onClick={handleCreateLink}
+                disabled={isGeneratingLink}
                 size="lg"
                 className="w-full"
               >
-                Generate Download Link
+                {isGeneratingLink ? (
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                    Preparing Download...
+                  </div>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download File
+                  </>
+                )}
               </Button>
             ) : (
               <div className="space-y-4">
@@ -468,7 +445,7 @@ export default function PublicDownloadPage({
                   onClick={handleDownload}
                   disabled={isDownloading}
                   size="lg"
-                  className="w-full download-button-animated"
+                  className="w-full"
                 >
                   {isDownloading ? (
                     <div className="flex items-center gap-2">
@@ -477,11 +454,22 @@ export default function PublicDownloadPage({
                     </div>
                   ) : (
                     <>
-                      <Download className="h-5 w-5 mr-2 download-icon-bounce" />
+                      <Download className="h-4 w-4 mr-2" />
                       Download File
                     </>
                   )}
                 </Button>
+                <p className="text-xs text-center text-muted-foreground">
+                  Your download should start automatically. If it didn&apos;t start, click{" "}
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className="text-primary underline hover:text-primary/80 font-medium cursor-pointer"
+                  >
+                    Download File
+                  </button>{" "}
+                  again.
+                </p>
                 {expiresIn && (
                   <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                     <Clock className="h-4 w-4" />

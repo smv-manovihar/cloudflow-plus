@@ -20,32 +20,24 @@ import {
   UploadFilesResponse,
 } from "@/types/files.types";
 
-export function UploadDropzone({
-  className,
-  onFilesUploaded,
-  prefix,
-  folderToCreate,
-  onFolderCreated,
-  onCreateCancelled,
-}: {
+interface UploadDropzoneProps {
+  className?: string;
+  prefix?: string;
   onFilesUploaded?: (
     response: UploadFilesResponse | UploadFilesErrorResponse
   ) => void;
-  className?: string;
-  prefix?: string;
-  folderToCreate?: string;
-  onFolderCreated?: (name: string) => void;
-  onCreateCancelled?: () => void;
-}) {
+}
+
+export function UploadDropzone({
+  className,
+  prefix,
+  onFilesUploaded,
+}: UploadDropzoneProps) {
   const [drag, setDrag] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [isUploading, setIsUploading] = useState(false); // Track upload state
+  const [isUploading, setIsUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  const effectivePrefix = folderToCreate
-    ? `${prefix || ""}${folderToCreate}/`
-    : prefix;
 
   const openPicker = useCallback(() => inputRef.current?.click(), []);
 
@@ -54,21 +46,13 @@ export function UploadDropzone({
       if (isUploading) return;
       setIsUploading(true);
 
-      let processedFiles = filesToUpload;
-      if (effectivePrefix?.endsWith("/")) {
-        processedFiles = filesToUpload.map((file) => {
-          const newName = `${effectivePrefix}${file.name}`;
-          return new File([file], newName, { type: file.type });
-        });
-      }
-
-      const totalFiles = processedFiles.length;
+      const totalFiles = filesToUpload.length;
       const uploadToast = toast.loading(
         `Preparing to upload ${totalFiles} file(s)...`
       );
 
       try {
-        const response = await uploadFiles(processedFiles, (progress) => {
+        const response = await uploadFiles(filesToUpload, prefix, (progress) => {
           const roundedProgress = Math.round(progress);
           if (roundedProgress < 100) {
             toast.loading(
@@ -86,17 +70,11 @@ export function UploadDropzone({
           toast.success(`Successfully uploaded ${totalFiles} file(s)`, {
             id: uploadToast,
           });
-          if (folderToCreate && onFolderCreated) {
-            onFolderCreated(folderToCreate);
-          }
         } else {
           toast.error(
             response.error || `Failed to upload ${totalFiles} file(s)`,
             { id: uploadToast, duration: 5000 }
           );
-          if (folderToCreate && onCreateCancelled) {
-            onCreateCancelled();
-          }
         }
 
         onFilesUploaded?.(response);
@@ -107,36 +85,20 @@ export function UploadDropzone({
           }`,
           { id: uploadToast, duration: 5000 }
         );
-        // console.error("Upload error:", error);
-        if (folderToCreate && onCreateCancelled) {
-          onCreateCancelled();
-        }
       } finally {
         setIsUploading(false);
       }
     },
-    [
-      isUploading,
-      onFilesUploaded,
-      effectivePrefix,
-      folderToCreate,
-      onFolderCreated,
-      onCreateCancelled,
-    ]
+    [isUploading, onFilesUploaded, prefix]
   );
 
   const handleUpload = useCallback(
-    async (files: File[]) => {
-      if (folderToCreate && files.length === 0) {
-        toast.error("At least one file is required to create the folder.", {
-          duration: 3000,
-        });
-        return;
-      }
+    (files: File[]) => {
+      if (files.length === 0) return;
       setSelectedFiles(files);
       setIsOpen(true);
     },
-    [folderToCreate]
+    []
   );
 
   const removeFile = useCallback((fileToRemove: File) => {
@@ -154,10 +116,7 @@ export function UploadDropzone({
   const cancelUpload = useCallback(() => {
     setIsOpen(false);
     setSelectedFiles([]);
-    if (folderToCreate && onCreateCancelled) {
-      onCreateCancelled();
-    }
-  }, [folderToCreate, onCreateCancelled]);
+  }, []);
 
   const onDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -179,20 +138,9 @@ export function UploadDropzone({
     [handleUpload]
   );
 
-  const getDropzoneSubtitle = useCallback(() => {
-    if (folderToCreate) {
-      return `Create "${folderToCreate}"`;
-    }
-    return prefix ? `Upload to: ${prefix.slice(0, -1)}` : "Upload to bucket";
-  }, [folderToCreate, prefix]);
-
-  const getDialogDescription = useCallback(() => {
-    let desc = `${selectedFiles.length} file(s) selected`;
-    if (folderToCreate) {
-      desc += `. Creates folder "${folderToCreate}"`;
-    }
-    return desc;
-  }, [selectedFiles.length, folderToCreate]);
+  const dropzoneSubtitle = prefix
+    ? `Uploading to folder /${prefix}`
+    : "Uploading to root directory";
 
   return (
     <>
@@ -217,13 +165,9 @@ export function UploadDropzone({
           setDrag(false);
         }}
         onDrop={onDrop}
-        aria-label={
-          folderToCreate
-            ? `Create "${folderToCreate}" by uploading files (drag/drop or click)`
-            : "Upload files (drag/drop or click)"
-        }
+        aria-label="Upload files (drag/drop or click)"
         className={cn(
-          "rounded-md border border-dashed p-3 sm:p-6 text-center transition-colors focus:outline-none hover:border-primary/50 select-none",
+          "rounded-md border border-dashed p-3 sm:p-6 text-center transition-colors focus:outline-none hover:border-primary/50 select-none cursor-pointer",
           drag ? "bg-muted" : "bg-transparent",
           className
         )}
@@ -247,7 +191,7 @@ export function UploadDropzone({
             browse
           </p>
           <p className="text-xs text-muted-foreground">
-            {getDropzoneSubtitle()}
+            {dropzoneSubtitle}
           </p>
         </div>
       </div>
@@ -256,7 +200,10 @@ export function UploadDropzone({
         <DialogContent className="sm:max-w-md max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Confirm Upload</DialogTitle>
-            <DialogDescription>{getDialogDescription()}</DialogDescription>
+            <DialogDescription>
+              {selectedFiles.length} file(s) selected for upload to{" "}
+              {prefix ? `/${prefix}` : "root"}
+            </DialogDescription>
           </DialogHeader>
           <div className="py-4 max-h-60 overflow-y-auto">
             <ul className="space-y-2">

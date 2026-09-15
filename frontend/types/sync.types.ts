@@ -1,3 +1,22 @@
+export interface SyncStatus {
+  sync_enabled: boolean;
+  has_sync_target: boolean;
+  last_sync_job_id: string | null;
+  last_sync_job_status: string | null;
+  last_sync_completed_at: string | null;
+}
+
+export interface SyncJob {
+  job_id: string;
+  status: 'queued' | 'running' | 'completed' | 'completed_with_errors' | 'failed';
+  total_files: number;
+  synced_files: number;
+  failed_files: number;
+  started_at: string;
+  completed_at: string | null;
+  error_message: string | null;
+}
+
 export interface BucketSyncResult {
   synced_files: number;
   skipped_files: number;
@@ -25,18 +44,5 @@ export interface SyncFileResultType {
 }
 
 export interface SyncFilePayload {
-  source_bucket?: string;
-  destination_bucket?: string;
   object_key: string;
-}
-
-export interface AsyncSyncResult {
-  status: string;
-  message: string;
-}
-
-export interface SyncBucketAsyncResultType {
-  success: boolean;
-  result?: AsyncSyncResult;
-  error?: string;
 }

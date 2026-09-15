@@ -10,7 +10,8 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-import { getLinkInfo, updateSharedLink, getQrCode } from "@/api/share.api";
+import { getLinkInfo, updateSharedLink } from "@/api/share.api";
+import { generateQrDataUrl } from "@/utils/qr";
 import { UpdateSharedLinkPayload } from "@/types/share.types";
 import { formatFileSize } from "@/utils/helpers";
 
@@ -104,11 +105,12 @@ export default function SharedLinkViewPage() {
         setExpiryDate(localExpiryDate);
         setExpiryTime(localExpiryTime);
 
-        const qrRes = await getQrCode(data.id);
-        if (qrRes.success) {
-          setQrCode(qrRes.result);
+        const shareUrl = `${window.location.origin}/shared/${data.id}/download`;
+        const qrDataUrl = await generateQrDataUrl(shareUrl);
+        if (qrDataUrl) {
+          setQrCode(qrDataUrl);
         } else {
-          toast.error(qrRes.error || "Failed to load QR code");
+          toast.error("Failed to generate QR code");
         }
       } else {
         toast.error(res.error || "Failed to fetch link info");
@@ -137,12 +139,12 @@ export default function SharedLinkViewPage() {
 
     let currentQrCode = qrCode;
     if (!currentQrCode) {
-      const res = await getQrCode(link.id);
-      if (!res.success) {
-        toast.error(res.error || "Failed to generate QR code");
+      const regenerated = await generateQrDataUrl(link.link);
+      if (!regenerated) {
+        toast.error("Failed to generate QR code");
         return;
       }
-      currentQrCode = res.result;
+      currentQrCode = regenerated;
       setQrCode(currentQrCode);
     }
 
@@ -211,10 +213,10 @@ export default function SharedLinkViewPage() {
       const needsInitialPassword = !linkHasPassword;
 
       if (hasNewPasswordInput || needsInitialPassword) {
-        const passwordLongEnough = trimmedPassword.length >= 4;
+        const passwordLongEnough = trimmedPassword.length >= 8;
 
         if (!passwordLongEnough) {
-          toast.error("Password must be at least 4 characters");
+          toast.error("Password must be at least 8 characters");
           return;
         }
 
@@ -272,14 +274,14 @@ export default function SharedLinkViewPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
+    <div className="flex-1 flex flex-col h-full overflow-hidden animate-in fade-in duration-200">
       <div className="border-b border-border bg-card p-2 md:p-3 lg:p-4 animate-in fade-in slide-in-from-top-2 duration-500">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => router.back()}
-            className="transition-all hover:scale-110 flex-shrink-0"
+            className="transition-all hover:scale-105 flex-shrink-0 duration-200"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
@@ -296,7 +298,7 @@ export default function SharedLinkViewPage() {
       <div className="flex-1 overflow-auto">
         <div className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
-            <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-bottom-2 duration-500 min-w-0 [animation-delay:50ms]">
+            <Card className="p-4 md:p-6 lg:p-8 min-w-0 animate-in fade-in slide-in-from-top-2 duration-500 delay-100">
               <h2 className="text-sm md:text-base font-semibold text-foreground mb-2">
                 File Information
               </h2>
@@ -343,7 +345,7 @@ export default function SharedLinkViewPage() {
                 </div>
               </div>
             </Card>
-            <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-bottom-2 duration-500 min-w-0 [animation-delay:100ms]">
+            <Card className="p-4 md:p-6 lg:p-8 min-w-0 animate-in fade-in slide-in-from-top-2 duration-500 delay-200">
               <h2 className="text-sm md:text-base font-semibold text-foreground mb-2">
                 Access Controls
               </h2>
@@ -454,7 +456,7 @@ export default function SharedLinkViewPage() {
                 </Button>
               </div>
             </Card>
-            <Card className="p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-bottom-2 duration-500 min-w-0 lg:col-span-2 2xl:col-span-1 [animation-delay:150ms]">
+            <Card className="p-4 md:p-6 lg:p-8 min-w-0 lg:col-span-2 2xl:col-span-1 animate-in fade-in slide-in-from-top-2 duration-500 delay-300">
               <h2 className="text-sm md:text-base font-semibold text-foreground mb-2">
                 Share
               </h2>

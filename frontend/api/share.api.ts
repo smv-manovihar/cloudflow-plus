@@ -9,7 +9,6 @@ import {
   GetDownloadLinkResultType,
   GetFileInfoResultType,
   GetLinkInfoResultType,
-  GetQrCodeResultType,
   ListSharedLinksResultType,
   SharedLink,
   SharedLinkList,
@@ -47,7 +46,6 @@ export const createSharedLink = async (
       created_at: data.created_at,
       enabled: data.enabled,
       has_password: data.has_password,
-      qr_code: data.qr_code,
       user_id: data.user_id,
     };
 
@@ -66,8 +64,8 @@ export const getDownloadLink = async (
   password?: string
 ): Promise<GetDownloadLinkResultType> => {
   try {
-    const params = password ? { password } : {};
-    const { data } = await api.get(`/share/${linkId}/download`, { params });
+    const headers = password ? { "X-Share-Password": password } : {};
+    const { data } = await api.get(`/share/${linkId}/download`, { headers });
 
     const result: DownloadLinkResult = {
       url: data.url,
@@ -97,6 +95,9 @@ export const getDownloadLink = async (
       case 410:
         errorMsg = "This link has expired.";
         break;
+      case 429:
+        errorMsg = detail || "Too many attempts. Try again later.";
+        break;
       default:
         if (!status) {
           const handled = handleApiError(error, errorMsg);
@@ -112,22 +113,6 @@ export const getDownloadLink = async (
         ...(detail && { detail })
       } 
     };
-  }
-};
-
-// ---------------------------
-// Get QR Code
-// ---------------------------
-
-export const getQrCode = async (linkId: string): Promise<GetQrCodeResultType> => {
-  try {
-    const { data } = await api.get(`/share/${linkId}/qr`, { responseType: "arraybuffer" });
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(data)));
-    const result = `data:image/png;base64,${base64}`;
-
-    return { success: true, result };
-  } catch (error) {
-    return handleApiError(error, "An unknown error occurred while getting the QR code.");
   }
 };
 
@@ -150,7 +135,6 @@ export const getLinkInfo = async (linkId: string): Promise<GetLinkInfoResultType
       created_at: data.created_at,
       enabled: data.enabled,
       has_password: data.has_password,
-      qr_code: data.qr_code,
       user_id: data.user_id,
     };
 
@@ -214,7 +198,6 @@ export const getSharedFileInfo = async (linkId: string): Promise<GetFileInfoResu
     const { data } = await api.get(`/share/${linkId}/public`);
     const result: FileInfo = {
       name: data.name,
-      bucket: data.bucket,
       size_bytes: data.size_bytes,
       has_password: data.has_password || false,
     };
@@ -284,7 +267,6 @@ export const updateSharedLink = async (
       created_at: data.created_at,
       enabled: data.enabled,
       has_password: data.has_password,
-      qr_code: data.qr_code,
       user_id: data.user_id,
     };
 

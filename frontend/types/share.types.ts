@@ -17,7 +17,6 @@ export interface SharedLink {
   created_at: string; // ISO datetime
   enabled: boolean;
   has_password: boolean;
-  qr_code?: string;
   user_id?: number;
 }
 
@@ -28,7 +27,7 @@ export interface SharedLinkList {
   page_size: number;
 }
 
-export type SharedListItem = Omit<SharedLink, "qr_code" | "has_password">;
+export type SharedListItem = Omit<SharedLink, "has_password">;
 
 export interface UpdateSharedLinkPayload {
   enabled?: boolean;
@@ -45,7 +44,7 @@ export interface DownloadLinkResult {
 
 export interface FileInfo {
   name: string;
-  bucket: string;
+  bucket?: string;
   size_bytes: number;
   has_password: boolean;
 }
@@ -65,14 +64,6 @@ export type GetDownloadLinkResultType = {
 } | {
   success: false;
   error: { status: number; message: string; detail?: string };
-};
-
-export type GetQrCodeResultType = {
-  success: true;
-  result: string; // base64 PNG
-} | {
-  success: false;
-  error: string;
 };
 
 export type GetLinkInfoResultType = {

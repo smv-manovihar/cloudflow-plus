@@ -22,7 +22,7 @@ export default function PreviewDialog({
 }: PreviewDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex flex-col w-full sm:w-[min(92vw,64rem)] max-w-4xl h-auto max-h-[85vh] sm:max-h-[80vh] p-0 m-0 bg-background rounded-lg overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+      <DialogContent className="flex flex-col w-full sm:w-[min(96vw,90rem)] max-w-7xl h-auto max-h-[92vh] sm:max-h-[90vh] p-0 m-0 bg-background rounded-lg overflow-hidden animate-in fade-in zoom-in-95 duration-300">
         <DialogHeader className="p-2 sm:p-4 border-b flex-shrink-0">
           <DialogTitle className="text-sm sm:text-base leading-tight">
             Preview

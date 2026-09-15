@@ -31,11 +31,13 @@ interface FileListProps {
   files: FileItem[];
   isLoading: boolean;
   viewMode: "grid" | "list";
+  hasSyncTarget?: boolean;
   syncingFiles: Set<string>;
   navigateUp: () => void;
   showNavigateUp?: boolean;
+  isSearching?: boolean;
   onFileClick: (fileName: string, fileKey: string) => void;
-  onFolderClick: (folderName: string) => void;
+  onFolderClick: (folderKey: string) => void;
   onDownload: (fileName: string, fileKey: string) => void;
   onShare: (fileName: string, fileKey: string) => void;
   onSyncFile: (fileName: string, fileKey: string) => void;
@@ -46,9 +48,11 @@ export default function FileList({
   files,
   isLoading,
   viewMode,
+  hasSyncTarget = false,
   syncingFiles,
   navigateUp,
   showNavigateUp = false,
+  isSearching = false,
   onFileClick,
   onFolderClick,
   onDownload,
@@ -114,8 +118,7 @@ export default function FileList({
             <div
               key={file.key}
               className={cn(
-                "flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-all group animate-in fade-in slide-in-from-left-2 duration-300",
-                file.isFolder ? "cursor-pointer" : "cursor-default"
+                "flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-all group animate-in fade-in slide-in-from-left-2 duration-300 cursor-pointer"
               )}
               style={{
                 animationDelay: `${
@@ -124,14 +127,18 @@ export default function FileList({
               }}
               onClick={() =>
                 file.isFolder
-                  ? onFolderClick(file.name)
+                  ? onFolderClick(file.key)
                   : onFileClick(file.name, file.key)
               }
-              role={file.isFolder ? "button" : undefined}
-              tabIndex={file.isFolder ? 0 : -1}
+              role="button"
+              tabIndex={0}
               onKeyDown={(e) => {
-                if (file.isFolder && (e.key === "Enter" || e.key === " ")) {
-                  onFolderClick(file.name);
+                if (e.key === "Enter" || e.key === " ") {
+                  if (file.isFolder) {
+                    onFolderClick(file.key);
+                  } else {
+                    onFileClick(file.name, file.key);
+                  }
                 }
               }}
             >
@@ -141,18 +148,27 @@ export default function FileList({
                 ) : (
                   <File className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground flex items-center gap-2">
-                    <span className="truncate">{file.name}</span>
-                  </p>
-                  {file.isFolder ? (
-                    <p className="text-xs text-muted-foreground">Folder</p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {`${file.size.value} ${file.size.unit}`} • {file.modified}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground flex items-center gap-2">
+                      <span className="truncate">{file.name}</span>
                     </p>
-                  )}
-                </div>
+                    {file.isFolder ? (
+                      <p className="text-xs text-muted-foreground">
+                        {isSearching && file.key.includes("/") && file.key.replace(/\/$/, "").includes("/")
+                          ? `Folder in /${file.key.replace(/\/$/, "").substring(0, file.key.replace(/\/$/, "").lastIndexOf("/"))}`
+                          : "Folder"}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        {`${file.size.value} ${file.size.unit}`} • {file.modified}
+                        {isSearching && file.key.includes("/") && (
+                          <span className="text-muted-foreground/80">
+                            {" "}• in /{file.key.substring(0, file.key.lastIndexOf("/"))}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
               </div>
 
               <div className="hidden md:flex gap-1 ml-2">
@@ -196,59 +212,61 @@ export default function FileList({
                       </TooltipContent>
                     </Tooltip>
 
-                    <Tooltip delayDuration={300}>
-                      <TooltipTrigger asChild>
-                        <span tabIndex={0}>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSyncFile(file.name, file.key);
-                            }}
-                            disabled={
-                              syncingFiles.has(file.name) ||
-                              file.syncStatus !== "false"
-                            }
-                            className="h-8 w-8 hover:scale-110 transition-transform"
-                          >
-                            {file.syncStatus === "true" ? (
-                              <CloudCheck
-                                className={cn(
-                                  "h-4 w-4",
-                                  file.syncStatus === "true" &&
-                                    "text-green-600 dark:text-green-400"
-                                )}
-                              />
-                            ) : file.syncStatus === "pending" ? (
-                              <CloudCog
-                                className={cn(
-                                  "h-4 w-4",
-                                  "text-orange-600 dark:text-orange-400"
-                                )}
-                              />
-                            ) : (
-                              <Cloud
-                                className={cn(
-                                  "h-4 w-4",
-                                  syncingFiles.has(file.name) &&
-                                    "animate-spin text-primary"
-                                )}
-                              />
-                            )}
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>
-                          {file.syncStatus === "true"
-                            ? "Already synced"
-                            : file.syncStatus === "pending"
-                            ? "Pending"
-                            : "Sync this file"}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
+                    {hasSyncTarget && (
+                      <Tooltip delayDuration={300}>
+                        <TooltipTrigger asChild>
+                          <span tabIndex={0}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSyncFile(file.name, file.key);
+                              }}
+                              disabled={
+                                syncingFiles.has(file.name) ||
+                                file.syncStatus !== "false"
+                              }
+                              className="h-8 w-8 hover:scale-110 transition-transform"
+                            >
+                              {file.syncStatus === "true" ? (
+                                <CloudCheck
+                                  className={cn(
+                                    "h-4 w-4",
+                                    file.syncStatus === "true" &&
+                                      "text-green-600 dark:text-green-400"
+                                  )}
+                                />
+                              ) : file.syncStatus === "pending" ? (
+                                <CloudCog
+                                  className={cn(
+                                    "h-4 w-4",
+                                    "text-orange-600 dark:text-orange-400"
+                                  )}
+                                />
+                              ) : (
+                                <Cloud
+                                  className={cn(
+                                    "h-4 w-4",
+                                    syncingFiles.has(file.name) &&
+                                      "animate-spin text-primary"
+                                  )}
+                                />
+                              )}
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            {file.syncStatus === "true"
+                              ? "Already synced"
+                              : file.syncStatus === "pending"
+                              ? "Pending"
+                              : "Sync this file"}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </>
                 )}
 
@@ -299,32 +317,34 @@ export default function FileList({
                           <Share2 className="h-4 w-4 mr-2" />
                           Share
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => onSyncFile(file.name, file.key)}
-                          disabled={
-                            syncingFiles.has(file.name) ||
-                            file.syncStatus !== "false"
-                          }
-                        >
-                          {!file.isFolder && file.syncStatus === "true" ? (
-                            <CloudCheck className="h-4 w-4 mr-2 text-green-600 dark:text-green-400" />
-                          ) : file.syncStatus === "pending" ? (
-                            <CloudCog className="h-4 w-4 mr-2 text-orange-600 dark:text-orange-400" />
-                          ) : (
-                            <Cloud
-                              className={cn(
-                                "h-4 w-4 mr-2",
-                                syncingFiles.has(file.name) &&
-                                  "animate-spin text-primary"
-                              )}
-                            />
-                          )}
-                          {syncingFiles.has(file.name)
-                            ? "Syncing..."
-                            : file.syncStatus === "true"
-                            ? "Synced"
-                            : "Sync"}
-                        </DropdownMenuItem>
+                        {hasSyncTarget && (
+                          <DropdownMenuItem
+                            onClick={() => onSyncFile(file.name, file.key)}
+                            disabled={
+                              syncingFiles.has(file.name) ||
+                              file.syncStatus !== "false"
+                            }
+                          >
+                            {!file.isFolder && file.syncStatus === "true" ? (
+                              <CloudCheck className="h-4 w-4 mr-2 text-green-600 dark:text-green-400" />
+                            ) : file.syncStatus === "pending" ? (
+                              <CloudCog className="h-4 w-4 mr-2 text-orange-600 dark:text-orange-400" />
+                            ) : (
+                              <Cloud
+                                className={cn(
+                                  "h-4 w-4 mr-2",
+                                  syncingFiles.has(file.name) &&
+                                    "animate-spin text-primary"
+                                )}
+                              />
+                            )}
+                            {syncingFiles.has(file.name)
+                              ? "Syncing..."
+                              : file.syncStatus === "true"
+                              ? "Synced"
+                              : "Sync"}
+                          </DropdownMenuItem>
+                        )}
                       </>
                     )}
                     <DropdownMenuItem
@@ -350,20 +370,27 @@ export default function FileList({
               <Card
                 key={file.key}
                 className={cn(
-                  "p-4 hover:shadow-md transition-all group animate-in fade-in zoom-in-95 duration-300 hover:scale-105",
-                  file.isFolder ? "cursor-pointer" : "cursor-default"
+                  "p-4 hover:shadow-md transition-all group animate-in fade-in zoom-in-95 duration-300 hover:scale-105 cursor-pointer"
                 )}
                 style={{
                   animationDelay: `${
                     showNavigateUp ? (index + 1) * 50 : index * 50
                   }ms`,
                 }}
-                onClick={() => file.isFolder && onFolderClick(file.name)}
-                role={file.isFolder ? "button" : undefined}
-                tabIndex={file.isFolder ? 0 : -1}
+                onClick={() =>
+                  file.isFolder
+                    ? onFolderClick(file.key)
+                    : onFileClick(file.name, file.key)
+                }
+                role="button"
+                tabIndex={0}
                 onKeyDown={(e) => {
-                  if (file.isFolder && (e.key === "Enter" || e.key === " ")) {
-                    onFolderClick(file.name);
+                  if (e.key === "Enter" || e.key === " ") {
+                    if (file.isFolder) {
+                      onFolderClick(file.key);
+                    } else {
+                      onFileClick(file.name, file.key);
+                    }
                   }
                 }}
               >
@@ -380,10 +407,16 @@ export default function FileList({
                       <p className="text-sm font-medium text-foreground truncate">
                         {file.name}
                       </p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-muted-foreground truncate">
                         {file.isFolder
-                          ? "Folder"
-                          : `${file.size.value} ${file.size.unit}`}
+                          ? (isSearching && file.key.includes("/") && file.key.replace(/\/$/, "").includes("/")
+                              ? `in /${file.key.replace(/\/$/, "").substring(0, file.key.replace(/\/$/, "").lastIndexOf("/"))}`
+                              : "Folder")
+                          : `${file.size.value} ${file.size.unit}${
+                              isSearching && file.key.includes("/")
+                                ? ` • /${file.key.substring(0, file.key.lastIndexOf("/"))}`
+                                : ""
+                            }`}
                       </p>
                     </div>
                   </div>
@@ -427,46 +460,48 @@ export default function FileList({
                         </TooltipContent>
                       </Tooltip>
 
-                      <Tooltip delayDuration={300}>
-                        <TooltipTrigger asChild>
-                          <span tabIndex={0}>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onSyncFile(file.name, file.key);
-                              }}
-                              disabled={
-                                syncingFiles.has(file.name) ||
-                                file.syncStatus === "true"
-                              }
-                              className="h-8 w-8 hover:scale-110 transition-transform"
-                            >
-                              {!file.isFolder && file.syncStatus === "true" ? (
-                                <CloudCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
-                              ) : (
-                                <Cloud
-                                  className={cn(
-                                    "h-4 w-4",
-                                    syncingFiles.has(file.name) &&
-                                      "animate-spin text-primary",
-                                    file.syncStatus === "true" &&
-                                      "text-green-600 dark:text-green-400"
-                                  )}
-                                />
-                              )}
-                            </Button>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>
-                            {file.syncStatus === "true"
-                              ? "Already synced"
-                              : "Sync this file"}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
+                      {hasSyncTarget && (
+                        <Tooltip delayDuration={300}>
+                          <TooltipTrigger asChild>
+                            <span tabIndex={0}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSyncFile(file.name, file.key);
+                                }}
+                                disabled={
+                                  syncingFiles.has(file.name) ||
+                                  file.syncStatus === "true"
+                                }
+                                className="h-8 w-8 hover:scale-110 transition-transform"
+                              >
+                                {!file.isFolder && file.syncStatus === "true" ? (
+                                  <CloudCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                ) : (
+                                  <Cloud
+                                    className={cn(
+                                      "h-4 w-4",
+                                      syncingFiles.has(file.name) &&
+                                        "animate-spin text-primary",
+                                      file.syncStatus === "true" &&
+                                        "text-green-600 dark:text-green-400"
+                                    )}
+                                  />
+                                )}
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>
+                              {file.syncStatus === "true"
+                                ? "Already synced"
+                                : "Sync this file"}
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
 
                       <Tooltip delayDuration={300}>
                         <TooltipTrigger asChild>

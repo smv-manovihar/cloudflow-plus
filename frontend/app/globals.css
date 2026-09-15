@@ -203,6 +203,11 @@
   }
 }
 
+.animate-in {
+  --tw-animation-fill-mode: both;
+  animation-fill-mode: both;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

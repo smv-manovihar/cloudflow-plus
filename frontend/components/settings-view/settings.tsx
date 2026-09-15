@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAuth } from "@/contexts/auth.context"; // Adjust path as needed
+import { useAuth } from "@/contexts/auth.context";
 import { updateUserInfo, changePassword, deleteAccount } from "@/api/auth.api";
+import { getSyncStatus, toggleSync, triggerFullSync } from "@/api/sync.api";
 import { UpdateUserData, ChangePasswordData } from "@/types/auth.types";
+import { SyncStatus } from "@/types/sync.types";
 import {
   Card,
   CardContent,
@@ -13,6 +15,9 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,7 +30,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
-import { LogOut, Trash2 } from "lucide-react";
+import { LogOut, Trash2, RefreshCw, CloudCheck, CloudOff, Info } from "lucide-react";
 
 export default function Settings() {
   const router = useRouter();
@@ -39,6 +44,9 @@ export default function Settings() {
     new: "",
     confirm: "",
   });
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [isSyncLoading, setIsSyncLoading] = useState(false);
+  const [isTriggeringSync, setIsTriggeringSync] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -52,6 +60,17 @@ export default function Settings() {
       });
     }
   }, [user]);
+
+  // Fetch sync status
+  useEffect(() => {
+    const fetchSync = async () => {
+      const res = await getSyncStatus();
+      if (res) {
+        setSyncStatus(res);
+      }
+    };
+    fetchSync();
+  }, []);
 
   const handleProfileChange = (field: string, value: string) => {
     setProfileData((prev) => ({ ...prev, [field]: value }));
@@ -76,7 +95,7 @@ export default function Settings() {
       const response = await updateUserInfo(updateData);
       if (response.success) {
         toast.success("Profile updated successfully");
-        await refreshUser(); // Refresh user data in context
+        await refreshUser();
       } else {
         toast.error(response.error || "Failed to update profile");
       }
@@ -125,6 +144,31 @@ export default function Settings() {
     }
   };
 
+  const handleToggleSync = async (enabled: boolean) => {
+    setIsSyncLoading(true);
+    try {
+      const updated = await toggleSync(enabled);
+      if (updated) {
+        setSyncStatus(updated);
+      }
+    } finally {
+      setIsSyncLoading(false);
+    }
+  };
+
+  const handleTriggerFullSync = async () => {
+    setIsTriggeringSync(true);
+    try {
+      const res = await triggerFullSync();
+      if (res) {
+        const updated = await getSyncStatus();
+        if (updated) setSyncStatus(updated);
+      }
+    } finally {
+      setIsTriggeringSync(false);
+    }
+  };
+
   const handleDeleteAccount = async () => {
     if (deleteConfirm !== "DELETE") {
       toast.error("Please type DELETE to confirm");
@@ -150,7 +194,6 @@ export default function Settings() {
     }
   };
 
-  // Show loading while auth is initializing
   if (authLoading || !user) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -227,8 +270,7 @@ export default function Settings() {
                 <label className="text-sm font-medium text-foreground">
                   Current Password
                 </label>
-                <Input
-                  type="password"
+                <PasswordInput
                   value={passwordData.current}
                   onChange={(e) =>
                     handlePasswordChange("current", e.target.value)
@@ -242,8 +284,7 @@ export default function Settings() {
                 <label className="text-sm font-medium text-foreground">
                   New Password
                 </label>
-                <Input
-                  type="password"
+                <PasswordInput
                   value={passwordData.new}
                   onChange={(e) => handlePasswordChange("new", e.target.value)}
                   placeholder="••••••••"
@@ -255,8 +296,7 @@ export default function Settings() {
                 <label className="text-sm font-medium text-foreground">
                   Confirm New Password
                 </label>
-                <Input
-                  type="password"
+                <PasswordInput
                   value={passwordData.confirm}
                   onChange={(e) =>
                     handlePasswordChange("confirm", e.target.value)
@@ -277,6 +317,72 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Sync Configuration Card - only displayed when sync target is available */}
+          {syncStatus?.has_sync_target && (
+            <Card className="animate-in fade-in slide-in-from-top-2 duration-500 delay-150 md:col-span-2">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <RefreshCw className="h-5 w-5 text-primary" />
+                      Automatic Cloud Sync & Backup
+                    </CardTitle>
+                    <CardDescription>
+                      Automatically mirror your files to secondary backup storage.
+                    </CardDescription>
+                  </div>
+                  <Badge variant="outline" className="text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30">
+                    <CloudCheck className="h-3.5 w-3.5 mr-1" />
+                    Sync Target Available
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between p-4 border rounded-xl bg-card">
+                  <div className="space-y-0.5">
+                    <label className="text-sm font-medium text-foreground cursor-pointer" htmlFor="sync-toggle">
+                      Enable Automatic Mirroring
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      When enabled, all newly uploaded files are asynchronously replicated to your secondary storage destination.
+                    </p>
+                  </div>
+                  <Switch
+                    id="sync-toggle"
+                    checked={Boolean(syncStatus.sync_enabled)}
+                    onCheckedChange={handleToggleSync}
+                    disabled={isSyncLoading}
+                  />
+                </div>
+
+                {syncStatus.sync_enabled && (
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2">
+                    <div className="text-xs text-muted-foreground">
+                      {syncStatus.last_sync_completed_at ? (
+                        <span>Last synchronized: {new Date(syncStatus.last_sync_completed_at).toLocaleString()}</span>
+                      ) : (
+                        <span>No sync run recorded yet</span>
+                      )}
+                      {syncStatus.last_sync_job_status && (
+                        <span className="ml-2 font-medium capitalize">({syncStatus.last_sync_job_status})</span>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleTriggerFullSync}
+                      disabled={isTriggeringSync}
+                      className="gap-1.5"
+                    >
+                      <RefreshCw className={cn("h-3.5 w-3.5", isTriggeringSync && "animate-spin")} />
+                      {isTriggeringSync ? "Queuing Sync..." : "Sync All Files Now"}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="animate-in fade-in slide-in-from-top-2 duration-500 delay-200 md:col-span-2">
             <CardHeader>

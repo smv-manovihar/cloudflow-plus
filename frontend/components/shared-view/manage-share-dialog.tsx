@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/use-toast";
 import { Copy, LinkIcon, QrCode } from "lucide-react";
+import { generateQrDataUrl } from "@/utils/qr";
 
 export type ManageShareItem = {
   id: string;
@@ -44,7 +45,19 @@ export function ManageShareDialog({
   item: ManageShareItem | null;
 }) {
   const [duration, setDuration] = React.useState<string>("7d");
+  const [qrSrc, setQrSrc] = React.useState<string>("");
   const shareUrl = item?.url ?? "";
+
+  React.useEffect(() => {
+    if (!open || !shareUrl) return;
+    let cancelled = false;
+    generateQrDataUrl(shareUrl).then((dataUrl) => {
+      if (!cancelled && dataUrl) setQrSrc(dataUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, shareUrl]);
 
   React.useEffect(() => {
     if (!open || !item) return;
@@ -71,10 +84,6 @@ export function ManageShareDialog({
   }
 
   if (!item) return null;
-
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
-    shareUrl
-  )}`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -151,13 +160,17 @@ export function ManageShareDialog({
           <div className="grid gap-2">
             <Label>QR code</Label>
             <div className="flex items-center gap-4">
-              <Image
-                src={qrSrc}
-                alt="QR code for shared link"
-                width={160}
-                height={160}
-                className="rounded-md border"
-              />
+              {qrSrc ? (
+                <Image
+                  src={qrSrc}
+                  alt="QR code for shared link"
+                  width={160}
+                  height={160}
+                  className="rounded-md border"
+                />
+              ) : (
+                <div className="size-[160px] rounded-md border bg-muted animate-pulse" />
+              )}
               <div className="grid gap-2">
                 <Button variant="outline" asChild>
                   <a href={shareUrl} target="_blank" rel="noreferrer">
@@ -167,6 +180,7 @@ export function ManageShareDialog({
                 </Button>
                 <Button
                   variant="outline"
+                  disabled={!qrSrc}
                   onClick={() => window.open(qrSrc, "_blank")}
                 >
                   <QrCode className="mr-2 size-4" />

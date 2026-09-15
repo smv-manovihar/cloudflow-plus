@@ -18,7 +18,7 @@ import { handleApiError } from "@/utils/helpers";
 // ---------------------------
 export const listFiles = async (
   prefix?: string,
-  q?:string,
+  q?: string,
   cursor?: string | null,
   pageSize = 12
 ): Promise<ListFilesResponse | ListFilesErrorResponse> => {
@@ -37,6 +37,8 @@ export const listFiles = async (
 
     const pagination: PaginationInfo = {
       count: data?.pagination?.count ?? files.length,
+      total: data?.pagination?.total ?? files.length,
+      offset: data?.pagination?.offset ?? 0,
       page_size: data?.pagination?.page_size ?? pageSize,
       has_more: Boolean(data?.pagination?.has_more),
       next_cursor: data?.pagination?.next_cursor ?? null,
@@ -65,8 +67,11 @@ export const listFiles = async (
 // ---------------------------
 export const uploadFiles = async (
   files: File[],
-  onProgress?: (progress: number) => void
+  prefixOrOnProgress?: string | ((progress: number) => void),
+  onProgressParam?: (progress: number) => void
 ): Promise<UploadFilesResponse | UploadFilesErrorResponse> => {
+  const prefix = typeof prefixOrOnProgress === "string" ? prefixOrOnProgress : undefined;
+  const onProgress = typeof prefixOrOnProgress === "function" ? prefixOrOnProgress : onProgressParam;
   try {
     if (!files || files.length === 0) {
       return {
@@ -83,6 +88,9 @@ export const uploadFiles = async (
     let lastProgress = 0;
 
     const { data } = await api.post("/files", formData, {
+      params: {
+        prefix: prefix || undefined,
+      },
       onUploadProgress: (progressEvent) => {
         if (progressEvent.total) {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -126,12 +134,28 @@ export const uploadFiles = async (
 };
 
 // ---------------------------
+// Create Folder
+// ---------------------------
+export const createFolder = async (
+  folderPath: string
+): Promise<{ success: true; data: any } | { success: false; error: string }> => {
+  try {
+    const { data } = await api.post("/files/folder", null, {
+      params: { folder_path: folderPath },
+    });
+    return { success: true, data };
+  } catch (error) {
+    return handleApiError(error, "Failed to create folder");
+  }
+};
+
+// ---------------------------
 // Download File
 // ---------------------------
 export const downloadFile = async (
   objectKey: string,
   filename?: string
-): Promise<{ success: true; synced: boolean } | { success: false; error: string }> => {
+): Promise<{ success: true; sync_status?: string } | { success: false; error: string }> => {
   try {
     if (!objectKey) {
       return { success: false, error: "Invalid file key provided." };
@@ -139,7 +163,7 @@ export const downloadFile = async (
 
     const response = await api.get(`/files/${objectKey}`, { responseType: "blob" });
 
-    const synced = response.headers["x-synced-to-aws"] === "true";
+    const syncStatus = response.headers["x-sync-status"] || "none";
     const blob = new Blob([response.data]);
     const url = window.URL.createObjectURL(blob);
 
@@ -151,7 +175,7 @@ export const downloadFile = async (
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
 
-    return { success: true, synced };
+    return { success: true, sync_status: syncStatus };
   } catch (error) {
     return handleApiError(error, "An unknown error occurred while downloading the file.");
   }
@@ -178,8 +202,7 @@ export const getFileInfo = async (
       last_modified: data.last_modified
         ? new Date(data.last_modified).toISOString()
         : "",
-      aws_bucket: data.aws_bucket ?? "",
-      synced: data.synced as "pending" | "true" | "false",
+      synced: (data.sync_status === "synced" ? "true" : data.sync_status === "pending" ? "pending" : "false") as "pending" | "true" | "false",
       last_synced: data.last_synced ?? null,
       is_shared: Boolean(data.is_shared),
       shared_link_id: data.shared_link_id ?? null,
@@ -194,21 +217,23 @@ export const getFileInfo = async (
 // ---------------------------
 export const deleteFile = async (
   objectKey: string,
-  sync = "local"
+  deleteType: "local" | "aws" | "both" = "both"
 ): Promise<DeleteFileResponse | DeleteFileErrorResponse> => {
   try {
     if (!objectKey) {
       return { success: false, error: "Invalid file key provided." };
     }
 
-    const { data } = await api.delete(`/files/${objectKey}`, { params: { sync } });
+    const { data } = await api.delete(`/files/${objectKey}`, {
+      params: { delete_type: deleteType },
+    });
 
     return {
       success: true,
       message: data?.message ?? "File deleted successfully.",
       bucket: data?.bucket ?? null,
       filename: data?.filename ?? objectKey,
-      synced: data?.synced as "pending" | "true" | "false",
+      synced: data?.deleted_from_sync_target ? "true" : "false",
     };
   } catch (error) {
     return handleApiError(error, "An unknown error occurred while deleting the file.");

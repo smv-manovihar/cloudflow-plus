@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { deleteFile, downloadFile, listFiles } from "@/api/files.api";
+import { createFolder, deleteFile, downloadFile, listFiles } from "@/api/files.api";
 import { createSharedLink, getSharedLinkId } from "@/api/share.api";
 import ShareDialog from "./browser-share-file-dialog";
 import {
@@ -14,7 +14,8 @@ import {
   UploadFilesErrorResponse,
   UploadFilesResponse,
 } from "@/types/files.types";
-import { syncFile, syncBucketAsyncFile, syncBucketAsync } from "@/api/sync.api";
+import { getSyncStatus, triggerFullSync, syncFile } from "@/api/sync.api";
+import { getPublicPlatformConfig } from "@/api/admin.api";
 import FileList from "./file-list";
 import PaginationControls from "../layout/pagination-controls";
 import { Button } from "../ui/button";
@@ -25,6 +26,7 @@ import {
   List,
   RefreshCw,
   Search,
+  X,
 } from "lucide-react";
 import { Input } from "../ui/input";
 import { cn } from "@/lib/utils";
@@ -71,21 +73,20 @@ export default function FileBrowser() {
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [searchQuery, setSearchQuery] = useState(q);
+  const [hasSyncTarget, setHasSyncTarget] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncingFiles, setSyncingFiles] = useState<Set<string>>(new Set());
   const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
-  const [pendingFolderName, setPendingFolderName] = useState<string>("");
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
-  const [deleteType, setDeleteType] = useState<"local" | "aws" | "both">(
-    "local"
-  );
+  const [deleteType, setDeleteType] = useState<"local" | "aws" | "both">("both");
   const [isDeleting, setIsDeleting] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [shareFile, setShareFile] = useState<FileItem | null>(null);
   const [shareExpires, setShareExpires] = useState("");
   const [sharePassword, setSharePassword] = useState("");
+  const [shareTargetPreference, setShareTargetPreference] = useState<"primary" | "sync_target">("primary");
   const [showSyncConfirmDialog, setShowSyncConfirmDialog] = useState(false);
 
   const relativeName = useCallback(
@@ -102,12 +103,14 @@ export default function FileBrowser() {
       return s3Files
         .filter((f) => {
           if (!f || typeof f.key !== "string") return false;
-          return !(prefix && f.key === prefix);
+          return !(prefix && (f.key === prefix || f.key === `${prefix}/`));
         })
         .map((f) => {
-          const isFolder = f.key.endsWith("/");
+          const isFolder = Boolean(f.is_folder || f.key.endsWith("/"));
           const rel = relativeName(f.key);
-          const name = isFolder ? rel.replace(/\/$/, "") : rel;
+          const name = isFolder
+            ? rel.replace(/^\/+|\/+$/g, "").split("/").pop() || rel
+            : rel.replace(/^\/+/, "").split("/").pop() || rel;
           const size = formatFileSize(f.size_bytes || 0);
           return {
             name,
@@ -118,11 +121,11 @@ export default function FileBrowser() {
               : "",
             isFolder,
             key: f.key,
-            syncStatus: f.synced as "pending" | "true" | "false",
+            syncStatus: (f.synced || (f.sync_status === "synced" ? "true" : f.sync_status === "pending" ? "pending" : "false")) as "pending" | "true" | "false",
             bucket,
-            isShared: false,
-            sharedLinkId: null,
-            lastSynced: null,
+            isShared: Boolean(f.is_shared),
+            sharedLinkId: f.shared_link_id || null,
+            lastSynced: f.last_synced || null,
             syncedBucket: null,
           };
         });
@@ -182,6 +185,17 @@ export default function FileBrowser() {
     };
     initialize();
     setSearchQuery(q);
+    getSyncStatus().then((res) => {
+      setHasSyncTarget(Boolean(res?.has_sync_target && res?.sync_enabled));
+    });
+    getPublicPlatformConfig().then((cfg) => {
+      if (cfg?.share_target_preference) {
+        setShareTargetPreference(cfg.share_target_preference);
+      }
+      if (cfg && !cfg.sync_enabled) {
+        setHasSyncTarget(false);
+      }
+    });
     return () => {
       mounted = false;
     };
@@ -213,15 +227,15 @@ export default function FileBrowser() {
   const handleSync = async () => {
     setIsSyncing(true);
     const toastId = toast.loading("Syncing all files...");
-    const res = await syncBucketAsync();
-    if (res.success) {
+    const res = await triggerFullSync();
+    if (res && res.job_id) {
       handleRefresh();
-      toast.success("Sync completed", {
+      toast.success("Sync job queued", {
         id: toastId,
         duration: 2000,
       });
     } else {
-      toast.error(res.error || "Failed to sync files", {
+      toast.error("Failed to sync files", {
         id: toastId,
         duration: 3000,
       });
@@ -233,75 +247,34 @@ export default function FileBrowser() {
     setSyncingFiles((prev) => new Set(prev).add(fileName));
     const toastId = toast.loading(`Syncing ${fileName}...`);
 
-    const file = currentPageData.find((f) => f.key === fileKey);
-    const SIZE_THRESHOLD = 20 * 1024 * 1024;
-    const isLargeFile = file ? file.sizeBytes > SIZE_THRESHOLD : false;
-
-    const res = isLargeFile
-      ? await syncBucketAsyncFile(fileKey)
-      : await syncFile(fileKey);
+    const res = await syncFile(fileKey);
 
     if (res.success) {
-      if (isLargeFile) {
-        setCurrentPageData((prev) =>
-          prev.map((f) =>
-            f.key === fileKey
-              ? {
-                  ...f,
-                  syncStatus: "pending",
-                  lastSynced: new Date().toLocaleString(),
-                }
-              : f
-          )
-        );
-        toast.success(
-          `${fileName} queued for sync. This may take a few minutes.`,
-          { id: toastId, duration: 4000 }
-        );
-      } else {
-        setCurrentPageData((prev) =>
-          prev.map((f) =>
-            f.key === fileKey
-              ? {
-                  ...f,
-                  syncStatus: "true",
-                  lastSynced: new Date().toLocaleString(),
-                  syncedBucket: res.result?.status || f.syncedBucket,
-                }
-              : f
-          )
-        );
-        toast.success(`${fileName} synced`, {
-          id: toastId,
-          duration: 2000,
-        });
-      }
-      setSyncingFiles((prev) => {
-        const next = new Set(prev);
-        next.delete(fileName);
-        return next;
+      toast.success(`${fileName} synced successfully`, {
+        id: toastId,
+        duration: 2000,
       });
-    } else {
       setCurrentPageData((prev) =>
         prev.map((f) =>
           f.key === fileKey
             ? {
                 ...f,
-                syncStatus: "false",
+                syncStatus: "true",
                 lastSynced: new Date().toLocaleString(),
               }
             : f
         )
       );
-      setSyncingFiles((prev) => {
-        const next = new Set(prev);
-        next.delete(fileName);
-        return next;
-      });
+    } else {
       toast.error(res.error || `Failed to sync ${fileName}`, {
         id: toastId,
       });
     }
+    setSyncingFiles((prev) => {
+      const next = new Set(prev);
+      next.delete(fileName);
+      return next;
+    });
   };
 
   const handleDownload = async (fileName: string, fileKey: string) => {
@@ -341,7 +314,7 @@ export default function FileBrowser() {
       return;
     }
     setSelectedFile(file);
-    setDeleteType("local");
+    setDeleteType(file.syncStatus === "true" ? "both" : "local");
     setShowDeleteDialog(true);
   };
 
@@ -426,18 +399,11 @@ export default function FileBrowser() {
 
     setIsDeleting(true);
     const toastId = toast.loading(`Deleting ${selectedFile.name}...`);
-    let success = false;
-    let errorMsg = "Delete failed";
 
     try {
       const result = await deleteFile(selectedFile.key, deleteType);
       if (result.success) {
-        success = true;
-        if (deleteType === "local" || deleteType === "both") {
-          setCurrentPageData((prev) =>
-            prev.filter((f) => f.key !== selectedFile.key)
-          );
-        } else if (deleteType === "aws") {
+        if (deleteType === "aws") {
           setCurrentPageData((prev) =>
             prev.map((f) =>
               f.key === selectedFile.key
@@ -450,43 +416,43 @@ export default function FileBrowser() {
                 : f
             )
           );
+          toast.success("File removed from secondary sync storage.", {
+            id: toastId,
+            duration: 2000,
+          });
+        } else {
+          setCurrentPageData((prev) =>
+            prev.filter((f) => f.key !== selectedFile.key)
+          );
+          toast.success("File deleted successfully.", {
+            id: toastId,
+            duration: 2000,
+          });
         }
+        setShowDeleteDialog(false);
+        setSelectedFile(null);
       } else {
-        errorMsg = result.error || errorMsg;
+        toast.error(result.error || "Delete failed", {
+          id: toastId,
+          duration: 3000,
+        });
       }
     } catch (err) {
-      errorMsg = "An unexpected error occurred during deletion.";
-    }
-
-    if (success) {
-      let successMsg = "File deleted successfully";
-      if (deleteType === "local") {
-        successMsg = "Deleted from local bucket.";
-      } else if (deleteType === "aws") {
-        successMsg = "Deleted from AWS bucket.";
-      } else if (deleteType === "both") {
-        successMsg = "Deleted from both buckets.";
-      }
-      toast.success(successMsg, {
-        id: toastId,
-        duration: 2000,
-      });
-      setShowDeleteDialog(false);
-      setSelectedFile(null);
-    } else {
-      toast.error(errorMsg, {
+      toast.error("An unexpected error occurred during deletion.", {
         id: toastId,
         duration: 3000,
       });
+    } finally {
+      setIsDeleting(false);
     }
-    setIsDeleting(false);
   };
 
-  const handleFolderClick = (folderName: string) => {
-    const newPrefix = `${prefix}${folderName}/`;
+  const handleFolderClick = useCallback((folderKey: string) => {
+    const clean = folderKey.replace(/^\/+|\/+$/g, "");
+    const newPrefix = `${clean}/`;
     const encodedPrefix = encodeURIComponent(newPrefix);
     router.push(`/?prefix=${encodedPrefix}`);
-  };
+  }, [router]);
 
   const handleFileClick = (fileName: string, fileKey: string) => {
     const current =
@@ -530,19 +496,24 @@ export default function FileBrowser() {
         router.push(`/?q=${encodeURIComponent(trimmed)}`);
       }
     } else {
-      if (prefix) {
-        router.push(`/?prefix=${encodeURIComponent(prefix)}`);
-      } else {
-        router.push(`/`);
-      }
+      handleClearSearch();
+    }
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    if (prefix) {
+      router.push(`/?prefix=${encodeURIComponent(prefix)}`);
+    } else {
+      router.push(`/`);
     }
   };
 
   const handleNavigateUp = () => {
     if (!prefix) return;
-    const parts = prefix.slice(0, -1).split("/");
+    const parts = prefix.replace(/\/+$/, "").split("/").filter(Boolean);
     parts.pop();
-    const newPrefix = parts.length > 0 ? parts.join("/") + "/" : "";
+    const newPrefix = parts.length > 0 ? `${parts.join("/")}/` : "";
     router.push(newPrefix ? `/?prefix=${encodeURIComponent(newPrefix)}` : "/");
   };
 
@@ -576,37 +547,41 @@ export default function FileBrowser() {
     [handleRefresh]
   );
 
-  const handleCreateFolderConfirm = useCallback(() => {
+  const handleCreateFolderConfirm = useCallback(async () => {
     const name = newFolderName.trim();
-    if (name && !name.includes("/") && !name.includes("..")) {
-      setPendingFolderName(name);
-      setNewFolderName("");
-      setShowCreateFolderDialog(false);
-    } else {
+    if (!name || name.includes("/") || name.includes("..")) {
       toast.error('Invalid folder name. Avoid slashes and ".."', {
         duration: 3000,
       });
+      return;
     }
-  }, [newFolderName]);
 
-  const handleCreateCancelled = useCallback(() => {
-    setPendingFolderName("");
-    toast.info("Folder creation cancelled. No files were uploaded.", {
-      duration: 2000,
-    });
-  }, []);
+    const folderPath = `${prefix || ""}${name}/`;
+    const toastId = toast.loading(`Creating folder "${name}"...`);
 
-  const handleFolderCreated = useCallback(
-    (name: string) => {
-      const newPrefix = `${prefix || ""}${name}/`;
-      router.push(`/?prefix=${encodeURIComponent(newPrefix)}`);
-      setPendingFolderName("");
-      toast.success(`Folder "${name}" created successfully!`, {
-        duration: 2000,
+    try {
+      const res = await createFolder(folderPath);
+      if (res && res.success) {
+        toast.success(`Folder "${name}" created successfully!`, {
+          id: toastId,
+          duration: 2000,
+        });
+        setShowCreateFolderDialog(false);
+        setNewFolderName("");
+        handleFolderClick(folderPath);
+      } else {
+        toast.error(res?.error || `Failed to create folder "${name}"`, {
+          id: toastId,
+          duration: 3000,
+        });
+      }
+    } catch (_err) {
+      toast.error(`Error creating folder "${name}"`, {
+        id: toastId,
+        duration: 3000,
       });
-    },
-    [prefix, router]
-  );
+    }
+  }, [newFolderName, prefix, handleFolderClick]);
 
   const isValidFolderName = useCallback((name: string) => {
     const trimmed = name.trim();
@@ -618,17 +593,29 @@ export default function FileBrowser() {
       <div className="border-b border-border bg-card p-4 md:p-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
         <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
           <div className="flex-1 relative flex gap-2">
-            <Input
-              placeholder="Search files..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleSearch();
-                }
-              }}
-              className="flex-1 transition-all focus:ring-2 focus:ring-primary/50"
-            />
+            <div className="relative flex-1">
+              <Input
+                placeholder={prefix ? `Search in /${prefix}...` : "Search all files & folders in database..."}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSearch();
+                  }
+                }}
+                className="w-full pr-8 transition-all focus:ring-2 focus:ring-primary/50"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={handleClearSearch}
+                  aria-label="Clear search"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -637,6 +624,8 @@ export default function FileBrowser() {
                   onClick={() => {
                     if (searchQuery.trim()) {
                       handleSearch();
+                    } else {
+                      handleClearSearch();
                     }
                   }}
                   className="transition-all hover:scale-105 bg-transparent"
@@ -650,27 +639,29 @@ export default function FileBrowser() {
             </Tooltip>
           </div>
           <div className="flex gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowSyncConfirmDialog(true)}
-                  disabled={isSyncing}
-                  className="transition-all hover:scale-105 bg-transparent"
-                >
-                  <CloudSun
-                    className={cn(
-                      "h-4 w-4",
-                      isSyncing && "animate-spin text-primary"
-                    )}
-                  />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Sync all files</p>
-              </TooltipContent>
-            </Tooltip>
+            {hasSyncTarget && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setShowSyncConfirmDialog(true)}
+                    disabled={isSyncing}
+                    className="transition-all hover:scale-105 bg-transparent"
+                  >
+                    <CloudSun
+                      className={cn(
+                        "h-4 w-4",
+                        isSyncing && "animate-spin text-primary"
+                      )}
+                    />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Sync all files</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -733,18 +724,26 @@ export default function FileBrowser() {
       </div>
 
       <div className="flex-1 flex flex-col overflow-auto">
-        {pendingFolderName && (
-          <div className="m-4 p-4 bg-primary/30 rounded-lg flex flex-col sm:flex-row sm:items-center gap-3">
-            <p className="text-sm flex-1">
-              Upload files to create &quot;/{pendingFolderName}&quot;.
-            </p>
+        {q && (
+          <div className="mx-4 mt-3 p-3 bg-muted/60 border border-border rounded-lg flex items-center justify-between gap-3 text-sm animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-2 text-foreground font-medium truncate">
+              <Search className="h-4 w-4 text-primary shrink-0" />
+              <span className="truncate">
+                Database search for &quot;<span className="text-primary font-semibold">{q}</span>&quot;
+                {prefix && (
+                  <span className="text-muted-foreground font-normal">
+                    {" "}inside /{prefix}
+                  </span>
+                )}
+              </span>
+            </div>
             <Button
               variant="secondary"
               size="sm"
-              onClick={handleCreateCancelled}
-              className="sm:ml-auto"
+              onClick={handleClearSearch}
+              className="h-7 px-2.5 text-xs shrink-0"
             >
-              Cancel
+              Clear
             </Button>
           </div>
         )}
@@ -753,17 +752,16 @@ export default function FileBrowser() {
           className="m-4 mb-2 p-8 border-2 border-dashed border-gray-300 rounded-lg"
           onFilesUploaded={handleUploadComplete}
           prefix={prefix}
-          folderToCreate={pendingFolderName || undefined}
-          onFolderCreated={handleFolderCreated}
-          onCreateCancelled={handleCreateCancelled}
         />
 
         <FileList
           files={currentPageData}
           isLoading={isLoading}
           viewMode={viewMode}
+          hasSyncTarget={hasSyncTarget}
           syncingFiles={syncingFiles}
           showNavigateUp={prefix.endsWith("/")}
+          isSearching={Boolean(q)}
           navigateUp={handleNavigateUp}
           onFileClick={handleFileClick}
           onFolderClick={handleFolderClick}
@@ -794,7 +792,7 @@ export default function FileBrowser() {
           <AlertDialogHeader>
             <AlertDialogTitle>Sync All Files?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will sync all files in the current directory with AWS. This
+              This will sync all files in the current directory with secondary backup storage. This
               operation may take some time depending on the number of files. Are
               you sure you want to continue?
             </AlertDialogDescription>
@@ -821,8 +819,9 @@ export default function FileBrowser() {
         }}
         fileData={selectedFile}
         deleteType={deleteType}
-        isDeleting={isDeleting}
         onDeleteTypeChange={setDeleteType}
+        hasSyncTarget={hasSyncTarget}
+        isDeleting={isDeleting}
         onDelete={handleDeleteConfirm}
       />
 
@@ -837,6 +836,7 @@ export default function FileBrowser() {
           objectKey={shareFile.key}
           expires={shareExpires}
           password={sharePassword}
+          shareTargetPreference={shareTargetPreference}
           onExpiresChange={setShareExpires}
           onPasswordChange={setSharePassword}
           onCreateShareLink={handleCreateShareLink}
@@ -851,18 +851,23 @@ export default function FileBrowser() {
           <DialogHeader>
             <DialogTitle>Create New Folder</DialogTitle>
             <DialogDescription>
-              Enter a name for the new folder. You will then select at least one
-              file to upload, which will create the folder.
+              {prefix
+                ? `Create a subfolder inside /${prefix}`
+                : "Create a new folder in root directory"}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Input
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
-              placeholder="Folder name (no slashes)"
-              onKeyDown={(e) =>
-                e.key === "Enter" && handleCreateFolderConfirm()
-              }
+              placeholder="Folder name (e.g. Documents)"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && isValidFolderName(newFolderName)) {
+                  e.preventDefault();
+                  handleCreateFolderConfirm();
+                }
+              }}
             />
           </div>
           <DialogFooter>
@@ -881,7 +886,7 @@ export default function FileBrowser() {
               onClick={handleCreateFolderConfirm}
               disabled={!isValidFolderName(newFolderName)}
             >
-              Next: Select Files
+              Create Folder
             </Button>
           </DialogFooter>
         </DialogContent>

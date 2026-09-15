@@ -29,7 +29,8 @@ import {
   DeleteFileErrorResponse,
   FileDetails,
 } from "@/types/files.types";
-import { syncBucketAsyncFile, syncFile } from "@/api/sync.api";
+import { getSyncStatus, syncFile } from "@/api/sync.api";
+import { getPublicPlatformConfig } from "@/api/admin.api";
 import { createSharedLink } from "@/api/share.api";
 import { CreateSharedLinkPayload } from "@/types/share.types";
 import { formatFileSize } from "@/utils/helpers";
@@ -41,6 +42,7 @@ import PreviewDialog from "@/components/files-view/preview-dialog";
 interface HeaderProps {
   fileName: string;
   fileData: FileDetails;
+  hasSyncTarget: boolean;
   isSyncPending: boolean;
   onBack: () => void;
   onSync: () => void;
@@ -52,6 +54,7 @@ interface HeaderProps {
 function Header({
   fileName,
   fileData,
+  hasSyncTarget,
   isSyncPending,
   onBack,
   onSync,
@@ -67,7 +70,7 @@ function Header({
           variant="ghost"
           size="icon"
           onClick={onBack}
-          className="hover:scale-110 transition-all duration-300"
+          className="hover:scale-105 transition-all duration-200"
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -79,6 +82,7 @@ function Header({
       </div>
       <ActionButtons
         fileData={fileData}
+        hasSyncTarget={hasSyncTarget}
         isSyncPending={isSyncPending}
         onSync={onSync}
         onDownload={onDownload}
@@ -93,6 +97,7 @@ function Header({
 // Action Buttons Component
 interface ActionButtonsProps {
   fileData: FileDetails;
+  hasSyncTarget: boolean;
   isSyncPending: boolean;
   onSync: () => void;
   onDownload: () => void;
@@ -102,6 +107,7 @@ interface ActionButtonsProps {
 }
 function ActionButtons({
   fileData,
+  hasSyncTarget,
   isSyncPending,
   onSync,
   onDownload,
@@ -111,33 +117,35 @@ function ActionButtons({
 }: ActionButtonsProps) {
   return (
     <div className="flex flex-wrap gap-2 ml-2">
-      <Button
-        onClick={fileData.syncStatus === "false" ? onSync : undefined}
-        disabled={isSyncPending || fileData.syncStatus !== "false"}
-        className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground animate-in fade-in slide-in-from-left-2 hover:scale-105 transition-all duration-300"
-        size="sm"
-      >
-        {fileData.syncStatus === "true" ? (
-          <>
-            <CloudCheck className="h-4 w-4" />
-            <span className="hidden md:inline">Synced</span>
-          </>
-        ) : fileData.syncStatus === "pending" ? (
-          <>
-            <CloudCog className="h-4 w-4" />
-            <span className="hidden md:inline">Pending</span>
-          </>
-        ) : (
-          <>
-            <Cloud className="h-4 w-4" />
-            <span className="hidden md:inline">Sync</span>
-          </>
-        )}
-      </Button>
+      {hasSyncTarget && (
+        <Button
+          onClick={fileData.syncStatus === "false" ? onSync : undefined}
+          disabled={isSyncPending || fileData.syncStatus !== "false"}
+          className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground hover:scale-105 transition-all duration-200"
+          size="sm"
+        >
+          {fileData.syncStatus === "true" ? (
+            <>
+              <CloudCheck className="h-4 w-4" />
+              <span className="hidden md:inline">Synced</span>
+            </>
+          ) : fileData.syncStatus === "pending" ? (
+            <>
+              <CloudCog className="h-4 w-4" />
+              <span className="hidden md:inline">Pending</span>
+            </>
+          ) : (
+            <>
+              <Cloud className="h-4 w-4" />
+              <span className="hidden md:inline">Sync</span>
+            </>
+          )}
+        </Button>
+      )}
       <Button
         onClick={onDownload}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2 [animation-delay:50ms] bg-transparent hover:scale-105 transition-all duration-300"
+        className="gap-2 bg-transparent hover:scale-105 transition-all duration-200"
         size="sm"
       >
         <Download className="h-4 w-4" />
@@ -146,7 +154,7 @@ function ActionButtons({
       <Button
         onClick={onPreview}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2 [animation-delay:100ms] bg-transparent hover:scale-105 transition-all duration-300"
+        className="gap-2 bg-transparent hover:scale-105 transition-all duration-200"
         size="sm"
       >
         <Eye className="h-4 w-4" />
@@ -155,7 +163,7 @@ function ActionButtons({
       <Button
         onClick={onShare}
         variant="outline"
-        className="gap-2 animate-in fade-in slide-in-from-left-2 [animation-delay:150ms] bg-transparent hover:scale-105 transition-all duration-300"
+        className="gap-2 bg-transparent hover:scale-105 transition-all duration-200"
         size="sm"
       >
         <Share2 className="h-4 w-4" />
@@ -166,7 +174,7 @@ function ActionButtons({
       <Button
         onClick={onDelete}
         variant="outline"
-        className="gap-2 text-destructive hover:bg-destructive animate-in fade-in slide-in-from-left-2 [animation-delay:200ms] hover:scale-105 transition-all duration-300"
+        className="gap-2 text-destructive hover:bg-destructive hover:text-destructive-foreground hover:scale-105 transition-all duration-200"
         size="sm"
       >
         <Trash2 className="h-4 w-4" />
@@ -182,7 +190,7 @@ interface FileInfoCardProps {
 }
 function FileInfoCard({ fileData }: FileInfoCardProps) {
   return (
-    <Card className="p-4 md:p-6 space-y-4">
+    <Card className="p-4 md:p-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-500 delay-100">
       <h3 className="font-semibold text-foreground">File Information</h3>
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -225,11 +233,14 @@ function FileInfoCard({ fileData }: FileInfoCardProps) {
 // Status Info Card Component
 interface StatusInfoCardProps {
   fileData: FileDetails;
+  hasSyncTarget: boolean;
 }
-function StatusInfoCard({ fileData }: StatusInfoCardProps) {
+function StatusInfoCard({ fileData, hasSyncTarget }: StatusInfoCardProps) {
   return (
-    <Card className="p-4 md:p-6 space-y-4">
-      <h3 className="font-semibold text-foreground">Status & Sync</h3>
+    <Card className="p-4 md:p-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-500 delay-200">
+      <h3 className="font-semibold text-foreground">
+        {hasSyncTarget ? "Status & Sync" : "File Status"}
+      </h3>
       <div className="space-y-3">
         <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
           <div className="flex items-center gap-2">
@@ -240,41 +251,45 @@ function StatusInfoCard({ fileData }: StatusInfoCardProps) {
             {fileData.isShared ? "Shared" : "Not Shared"}
           </span>
         </div>
-        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-          <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4 text-primary" />
-            <span className="text-sm text-muted-foreground">Sync Status</span>
-          </div>
-          <span className="text-sm font-medium text-foreground">
-            {fileData.syncStatus === "pending"
-              ? "Pending"
-              : fileData.syncStatus === "true"
-              ? "Synced"
-              : "Not Synced"}
-          </span>
-        </div>
-        {fileData.syncStatus === "true" && fileData.syncedBucket && (
-          <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-            <div className="flex items-center gap-2">
-              <HardDrive className="h-4 w-4 text-blue-600" />
-              <span className="text-sm text-muted-foreground">
-                Synced to Bucket
+        {hasSyncTarget && (
+          <>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-primary" />
+                <span className="text-sm text-muted-foreground">Sync Status</span>
+              </div>
+              <span className="text-sm font-medium text-foreground">
+                {fileData.syncStatus === "pending"
+                  ? "Pending"
+                  : fileData.syncStatus === "true"
+                  ? "Synced"
+                  : "Not Synced"}
               </span>
             </div>
-            <span className="text-sm font-medium text-foreground">
-              {fileData.syncedBucket}
-            </span>
-          </div>
+            {fileData.syncStatus === "true" && fileData.syncedBucket && (
+              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                <div className="flex items-center gap-2">
+                  <HardDrive className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm text-muted-foreground">
+                    Synced to Bucket
+                  </span>
+                </div>
+                <span className="text-sm font-medium text-foreground">
+                  {fileData.syncedBucket}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-amber-600" />
+                <span className="text-sm text-muted-foreground">Last Synced</span>
+              </div>
+              <span className="text-sm font-medium text-foreground">
+                {fileData.lastSynced || "Never"}
+              </span>
+            </div>
+          </>
         )}
-        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-amber-600" />
-            <span className="text-sm text-muted-foreground">Last Synced</span>
-          </div>
-          <span className="text-sm font-medium text-foreground">
-            {fileData.lastSynced || "Never"}
-          </span>
-        </div>
       </div>
     </Card>
   );
@@ -285,9 +300,11 @@ export default function FileDetailsPage() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const objectKey = params.id as string;
+  const rawId = (params.id as string) || "";
+  const objectKey = decodeURIComponent(rawId);
 
   const [isLoading, setIsLoading] = useState(true);
+  const [hasSyncTarget, setHasSyncTarget] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileData, setFileData] = useState<FileDetails | null>(null);
   const [isSyncPending, setIsSyncPending] = useState(false);
@@ -300,6 +317,7 @@ export default function FileDetailsPage() {
   );
   const [expires, setExpires] = useState<string>("");
   const [password, setPassword] = useState<string>("");
+  const [shareTargetPreference, setShareTargetPreference] = useState<"primary" | "sync_target">("primary");
 
   // decode `from` param if present
   const rawFrom = searchParams?.get("from");
@@ -381,6 +399,17 @@ export default function FileDetailsPage() {
     };
 
     fetchFileInfo();
+    getSyncStatus().then((res) => {
+      setHasSyncTarget(Boolean(res?.has_sync_target && res?.sync_enabled));
+    });
+    getPublicPlatformConfig().then((cfg) => {
+      if (cfg?.share_target_preference) {
+        setShareTargetPreference(cfg.share_target_preference);
+      }
+      if (cfg && !cfg.sync_enabled) {
+        setHasSyncTarget(false);
+      }
+    });
   }, [objectKey]);
 
   const getFileType = (fileName: string): string => {
@@ -409,39 +438,22 @@ export default function FileDetailsPage() {
       `${isLargeFile ? "Queuing" : "Syncing"} ${fileData.name}...`
     );
 
-    const res = isLargeFile
-      ? await syncBucketAsyncFile(fileData.objectKey)
-      : await syncFile(fileData.objectKey);
+    const res = await syncFile(fileData.objectKey);
 
     if (res.success) {
-      if (isLargeFile) {
-        toast.success(
-          `${fileData.name} queued for sync. This may take a few minutes.`,
-          { id: toastId, duration: 4000 }
-        );
-        setFileData((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            syncStatus: "pending",
-            lastSynced: new Date().toLocaleString(),
-          };
-        });
-      } else {
-        toast.success(`${fileData.name} synced successfully`, {
-          id: toastId,
-          duration: 2000,
-        });
-        setFileData((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            syncStatus: "true",
-            lastSynced: new Date().toLocaleString(),
-            syncedBucket: res.result?.status || prev.syncedBucket,
-          };
-        });
-      }
+      toast.success(`${fileData.name} synced successfully`, {
+        id: toastId,
+        duration: 2000,
+      });
+      setFileData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          syncStatus: "true",
+          lastSynced: new Date().toLocaleString(),
+          syncedBucket: res.result?.status || prev.syncedBucket,
+        };
+      });
       setIsSyncPending(false);
     } else {
       toast.error(res.error || "Sync failed", { id: toastId });
@@ -513,43 +525,40 @@ export default function FileDetailsPage() {
       if ("success" in response && response.success) {
         success = true;
         if (deleteType === "aws") {
-          // For AWS only, update state to reflect deletion without removing local file
-          setFileData((prev) => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              syncStatus: "false",
-              lastSynced: null,
-              syncedBucket: null,
-            };
+          setFileData((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  syncStatus: "false",
+                  lastSynced: null,
+                  syncedBucket: null,
+                }
+              : null
+          );
+          toast.success("File removed from secondary sync storage", {
+            id: toastId,
+            duration: 2000,
           });
+          setShowDeleteDialog(false);
         } else {
-          // For local or both, file is removed locally, so navigate back
+          toast.success("File deleted successfully", {
+            id: toastId,
+            duration: 2000,
+          });
+          setShowDeleteDialog(false);
           handleBack();
         }
       } else {
         const apiError = response as DeleteFileErrorResponse;
         errorMsg = apiError.error || errorMsg;
+        toast.error(errorMsg, { id: toastId, duration: 3000 });
       }
     } catch (err) {
       errorMsg = "An unexpected error occurred during deletion.";
+      toast.error(errorMsg, { id: toastId, duration: 3000 });
+    } finally {
+      setIsDeleting(false);
     }
-
-    if (success) {
-      let successMsg = "File deleted successfully";
-      if (deleteType === "local") {
-        successMsg = "Deleted from local bucket.";
-      } else if (deleteType === "aws") {
-        successMsg = "Deleted from AWS bucket.";
-      } else if (deleteType === "both") {
-        successMsg = "Deleted from both buckets.";
-      }
-      toast.success(successMsg, { id: toastId });
-      setShowDeleteDialog(false);
-    } else {
-      toast.error(errorMsg, { id: toastId });
-    }
-    setIsDeleting(false);
   };
 
   if (isLoading) {
@@ -618,23 +627,27 @@ export default function FileDetailsPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
+    <div className="flex-1 flex flex-col h-full overflow-hidden animate-in fade-in duration-200">
       <Header
         fileName={fileData.name}
         fileData={fileData}
+        hasSyncTarget={hasSyncTarget}
         isSyncPending={isSyncPending}
         onBack={handleBack}
         onSync={handleSync}
         onDownload={handleDownload}
         onPreview={() => setShowPreview(true)}
         onShare={handleShare}
-        onDelete={() => setShowDeleteDialog(true)}
+        onDelete={() => {
+          setDeleteType(fileData.syncStatus === "true" ? "both" : "local");
+          setShowDeleteDialog(true);
+        }}
       />
       <div className="flex-1 overflow-auto">
         <div className="p-4 md:p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500 delay-200">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FileInfoCard fileData={fileData} />
-            <StatusInfoCard fileData={fileData} />
+            <StatusInfoCard fileData={fileData} hasSyncTarget={hasSyncTarget} />
           </div>
         </div>
       </div>
@@ -649,8 +662,9 @@ export default function FileDetailsPage() {
         onOpenChange={setShowDeleteDialog}
         fileData={fileData}
         deleteType={deleteType}
-        isDeleting={isDeleting}
         onDeleteTypeChange={setDeleteType}
+        hasSyncTarget={hasSyncTarget}
+        isDeleting={isDeleting}
         onDelete={handleDelete}
       />
       <ShareDialog
@@ -660,6 +674,7 @@ export default function FileDetailsPage() {
         objectKey={objectKey}
         expires={expires}
         password={password}
+        shareTargetPreference={shareTargetPreference}
         onExpiresChange={setExpires}
         onPasswordChange={setPassword}
         onCreateShareLink={handleCreateShareLink}

@@ -35,14 +35,15 @@ export function BucketsView({
   if (view === "grid") {
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {items.map((b) => (
+        {items.map((b, index) => (
           <Card
             key={b.id}
             role="button"
             tabIndex={0}
             onClick={() => onOpen(b)}
             onKeyDown={(e) => onKey(e, b)}
-            className="transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"
+            className="transition-all hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer animate-in fade-in zoom-in-95 duration-300 hover:scale-105"
+            style={{ animationDelay: `${index * 50}ms` }}
             aria-label={`Open bucket ${b.name}`}
           >
             <CardHeader className="flex-row items-center gap-3">
@@ -71,10 +72,11 @@ export function BucketsView({
         <div className="text-right">Open</div>
       </div>
       <ul className="divide-y">
-        {items.map((b) => (
+        {items.map((b, index) => (
           <li
             key={b.id}
-            className="grid grid-cols-[minmax(0,1fr)_140px_180px_100px] items-center px-3 py-3"
+            className="grid grid-cols-[minmax(0,1fr)_140px_180px_100px] items-center px-3 py-3 animate-in fade-in slide-in-from-left-2 duration-300"
+            style={{ animationDelay: `${index * 50}ms` }}
           >
             <div className="min-w-0 flex items-center gap-2">
               <Folder
