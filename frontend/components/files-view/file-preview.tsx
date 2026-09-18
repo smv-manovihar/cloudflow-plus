@@ -249,9 +249,9 @@ export function FilePreview({
 
   if (isLoading) {
     return (
-      <div className={`flex flex-col flex-1 overflow-hidden ${className}`}>
-        <div className="bg-muted rounded-lg p-3 sm:p-4 flex items-center justify-center flex-1 max-h-[60vh] sm:max-h-[50vh]">
-          <div className="animate-pulse bg-gray-300 rounded-lg h-32 sm:h-48 w-full max-w-xs sm:max-w-md" />
+      <div className={`flex flex-col flex-1 h-full min-h-[360px] overflow-hidden ${className}`}>
+        <div className="flex items-center justify-center flex-1 h-full min-h-[360px]">
+          <div className="animate-pulse bg-muted rounded-lg h-48 sm:h-64 w-full max-w-md" />
         </div>
       </div>
     );
@@ -278,29 +278,37 @@ export function FilePreview({
     );
   }
 
+  if (isImage) {
+    return (
+      <div className={`flex flex-1 h-full min-h-[360px] items-center justify-center overflow-auto ${className}`}>
+        <img
+          src={previewSrc || undefined}
+          alt={fileName}
+          className="max-w-full max-h-[68vh] object-contain animate-in fade-in duration-500"
+        />
+      </div>
+    );
+  }
+
+  if (isVideo) {
+    return (
+      <div className={`flex flex-1 h-full min-h-[360px] items-center justify-center overflow-auto ${className}`}>
+        <video
+          controls
+          preload="metadata"
+          className="max-w-full max-h-[68vh] w-full bg-black animate-in fade-in duration-500"
+          src={previewSrc || undefined}
+        >
+          Your browser does not support the video tag.
+        </video>
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex flex-col flex-1 overflow-hidden ${className}`}>
-      <div className="bg-muted rounded-lg p-3 sm:p-4 flex items-center justify-center flex-1 max-h-[60vh] sm:max-h-[50vh] overflow-auto">
-        {isImage ? (
-          <div className="w-full h-full flex items-center justify-center">
-            <img
-              src={previewSrc || undefined}
-              alt={fileName}
-              className="max-w-full max-h-[50vh] sm:max-h-[45vh] rounded-lg object-contain animate-in fade-in duration-500"
-            />
-          </div>
-        ) : isVideo ? (
-          <div className="w-full flex items-center justify-center">
-            <video
-              controls
-              preload="metadata"
-              className="max-w-full max-h-[50vh] sm:max-h-[45vh] rounded-lg bg-black animate-in fade-in duration-500"
-              src={previewSrc || undefined}
-            >
-              Your browser does not support the video tag.
-            </video>
-          </div>
-        ) : isPdf ? (
+    <div className={`flex flex-col flex-1 h-full min-h-[360px] overflow-hidden ${className}`}>
+      <div className="bg-muted rounded-lg p-3 sm:p-4 flex items-center justify-center flex-1 h-full min-h-[360px] overflow-auto">
+        {isPdf ? (
           <div
             className="flex flex-col items-center justify-center flex-1 text-muted-foreground animate-in fade-in duration-500 rounded-lg bg-muted"
             style={{
@@ -326,8 +334,8 @@ export function FilePreview({
             </div>
           </div>
         ) : isText && previewContent ? (
-          <div className="w-full bg-card rounded-lg p-2 sm:p-3 border border-border overflow-hidden animate-in fade-in duration-500">
-            <div className="max-h-[50vh] sm:max-h-[45vh] overflow-auto pr-2">
+          <div className="w-full h-full min-h-[360px] bg-card rounded-lg p-2 sm:p-3 border border-border overflow-hidden animate-in fade-in duration-500">
+            <div className="h-full max-h-[68vh] overflow-auto pr-2">
               <pre className="text-xs sm:text-sm font-mono text-foreground whitespace-pre-wrap break-words">
                 {previewContent}
               </pre>

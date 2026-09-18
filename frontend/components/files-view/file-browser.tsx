@@ -186,7 +186,7 @@ export default function FileBrowser() {
     initialize();
     setSearchQuery(q);
     getSyncStatus().then((res) => {
-      setHasSyncTarget(Boolean(res?.has_sync_target && res?.sync_enabled));
+      setHasSyncTarget(Boolean(res?.has_sync_target));
     });
     getPublicPlatformConfig().then((cfg) => {
       if (cfg?.share_target_preference) {
